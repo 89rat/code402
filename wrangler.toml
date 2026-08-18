@@ -67,7 +67,8 @@ name = "code402-edge-prod"
 # Custom domain (zone code402.dev already in account). Also fixes same-account
 # workers.dev subrequest routing (asset-router interception observed 2026-08-17).
 routes = [
-  { pattern = "code402.dev", custom_domain = true }
+  { pattern = "code402.dev", custom_domain = true },
+  { pattern = "www.code402.dev", custom_domain = true }
 ]
 
 [env.production.durable_objects]
