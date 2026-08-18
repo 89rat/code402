@@ -9,3 +9,4 @@ site/dist/
 .staging/
 .staging-*
 collab/logs/
+tests/legacy-snapshot/semantic-voucher.txt

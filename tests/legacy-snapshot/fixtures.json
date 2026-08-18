@@ -35,14 +35,14 @@
         "name": "USDC",
         "version": "2"
       },
-      "expires_at": 1787085169,
-      "expires_at_rfc3339": "2026-08-18T20:32:49Z",
+      "expires_at": 1787086207,
+      "expires_at_rfc3339": "2026-08-18T20:50:07Z",
       "network": {
         "chain_id": 84532,
         "name": "base-sepolia"
       },
-      "nonce": "0xf0ae02d643f1a967b738c1193bb8de2f7021decf61a7c3ad7787bcf1086e5533",
-      "payment_intent_id": "req-1787084869055",
+      "nonce": "0xa6a90041bfc2a826875736213034e6488fff30e903f9c08c73155bcde5374c72",
+      "payment_intent_id": "req-1787085907980",
       "price": {
         "amount": "5000",
         "asset": "USDC",
@@ -54,10 +54,10 @@
         "type": "eip3009_voucher"
       },
       "recipient": "0x000000000000000000000000000000000000dEaD",
-      "request_id": "req-1787084869055",
+      "request_id": "req-1787085907980",
       "service_id": "vat-mod97-check",
       "settlement_mode": "facilitated_direct",
-      "status_url": "/v1/requests/req-1787084869055",
+      "status_url": "/v1/requests/req-1787085907980",
       "tool": "vat-mod97-check",
       "x402_version": 1
     },
@@ -551,6 +551,51 @@
       "HTTP/1.1 200 OK"
     ],
     "status": 200
+  },
+  "options_preflight": {
+    "body": {
+      "error": {
+        "code": "INPUT_SCHEMA_INVALID",
+        "message": "route must be POST /v1/tools/{tool}/call",
+        "retryable": false
+      }
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 400 Bad Request",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 400
+  },
+  "semantic_voucher_wrong_recipient": {
+    "body": {
+      "error": {
+        "code": "INVALID_RECIPIENT",
+        "message": "recipient is not the corporate wallet",
+        "retryable": false
+      }
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 400 Bad Request",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 400
+  },
+  "status_route": {
+    "body": {
+      "error": {
+        "code": "INPUT_SCHEMA_INVALID",
+        "message": "route must be POST /v1/tools/{tool}/call",
+        "retryable": false
+      }
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 400 Bad Request",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 400
   },
   "trust_badge_unrated": {
     "body": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"147\" height=\"20\" role=\"img\" aria-label=\"code402 trust: unrated\"><rect width=\"92\" height=\"20\" fill=\"#24292f\"/><rect x=\"92\" width=\"55\" height=\"20\" fill=\"#6e7781\"/><text x=\"6\" y=\"14\" fill=\"#ffffff\" font-family=\"monospace\" font-size=\"11\">code402 trust</text><text x=\"98\" y=\"14\" fill=\"#ffffff\" font-family=\"monospace\" font-size=\"11\">unrated</text></svg>",

@@ -33,9 +33,23 @@ Runbook records this.
   (v2 path refuses; legacy codec path unaffected until Stage 4 rewire, after
   which legacy shares the gate and a KV outage fails closed for paid calls
   entirely — free/manifest/trust routes unaffected).
+- **Malformed flag values** (anything other than exact `true`): treated as
+  `false`. Only exact string `true` enables.
 - Breaker (G4/G7) is a separate KV flag `ops:facilitator_breaker`
   (`open`|`closed`) managed by the cron health probe + failure counters.
   Breaker open ⇒ fail closed with `503 RETRYABLE` + spec taxonomy reason.
+  **KV read failure of the breaker flag itself ⇒ treated as `open` (fail
+  closed)** — it guards the money path; presume tripped.
+- **The G7 reconciliation cron is NOT gated by `ops:x402v2_enabled`.** After a
+  kill, outstanding `settlement_pending`/`receipt_pending` rows still require
+  backfill and on-chain reconciliation; only new payment ACCEPTANCE is killed.
+
+## Write authority
+
+KV flags are writable only via the wrangler/Cloudflare API with the operator
+account (same authority as deploys). No worker route may write these keys.
+Runbook: `wrangler kv key put --binding PRICING ops:x402v2_enabled --text false`
+(and the reverse for enable), `ops:x402v2_network` similarly.
 
 ## Interaction with `[vars]` and secrets
 

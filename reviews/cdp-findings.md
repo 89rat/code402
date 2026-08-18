@@ -54,3 +54,10 @@ D1 remote query 2026-08-19:
 **hard-cut the legacy X-PAYMENT route at Stage 5; no 90-day sunset machinery.**
 (The 40 prod challenges are unpaid probes; they receive the v2 402 going
 forward, which standard clients can actually answer.)
+
+## PRE-CUT OBLIGATIONS (audit Q4, before the Stage 5 hard cut)
+1. **Reconcile prod's 1 PENDING_SETTLEMENT row on-chain** (`AuthorizationUsed`
+   / `TransferWithAuthorization` for that nonce): if the payment actually
+   moved, serve or make that payer whole before cutting their redemption path.
+2. **Re-run the traffic query at Stage 5** — this measurement is a point-in-time
+   snapshot; re-verify ~zero settled traffic immediately before the cut.

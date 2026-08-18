@@ -54,4 +54,21 @@ snap challenge_402 POST /v1/tools/vat-mod97-check/call -H 'content-type: applica
 snap garbage_payment POST /v1/tools/vat-mod97-check/call -H 'content-type: application/json' -H 'X-PAYMENT: not-json' -d '{"input":{"vat_number":"GB123456789"}}'
 snap bad_voucher POST /v1/tools/vat-mod97-check/call -H 'content-type: application/json' -H 'X-PAYMENT: {"auth":{"from":"0x1","to":"0x2","value":"1","valid_after":0,"valid_before":1,"nonce":"0x00"},"signature":"00"}' -d '{"input":{"vat_number":"GB123456789"}}'
 
+# --- preflight / status route (current behavior; v2 changes CORS by design) ---
+snap options_preflight OPTIONS /v1/tools/vat-mod97-check/call
+snap status_route GET /v1/requests/req-some-request-id
+
+# --- semantic-failure voucher: properly signed, wrong recipient (audit Q5).
+# Requires: cargo run --manifest-path crates/keygen/Cargo.toml --bin paytest
+# > semantic-voucher.txt (regenerate when expired; file is gitignored).
+V="$OUT.dir/../legacy-snapshot/semantic-voucher.txt"
+if [ -f "$(dirname "$0")/semantic-voucher.txt" ]; then
+  snap semantic_voucher_wrong_recipient POST /v1/tools/vat-mod97-check/call \
+    -H 'content-type: application/json' \
+    -H "X-PAYMENT: $(cat "$(dirname "$0")/semantic-voucher.txt")" \
+    -d '{"input":{"vat_number":"GB123456789"}}'
+else
+  echo "skip semantic_voucher (no semantic-voucher.txt — see README)"
+fi
+
 echo "fixtures written to $OUT"
