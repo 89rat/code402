@@ -449,10 +449,14 @@ pub fn structural_gate(p: &PaymentPayload, ctx: &StructuralContext) -> Result<()
         return Err(X402Error::WrongVersion(p.x402_version));
     }
     // exact field match of the echo against what we issued (G4/G6).
+    // maxTimeoutSeconds is compared too — a divergent echo is not what we
+    // offered. `extra` is NOT compared here: it carries the G6 HMAC stamp,
+    // verified upstream against the issued copy.
     let a = &p.accepted;
     let e = ctx.expected;
     if a.scheme != e.scheme || a.network != e.network || a.amount != e.amount
         || a.asset != e.asset || a.pay_to != e.pay_to
+        || a.max_timeout_seconds != e.max_timeout_seconds
     {
         return Err(X402Error::ExactAmountMismatch(
             a.amount.clone(),
@@ -462,16 +466,17 @@ pub fn structural_gate(p: &PaymentPayload, ctx: &StructuralContext) -> Result<()
     let auth = &p.payload.authorization;
     // nonce: exactly 32 bytes (G10)
     auth.nonce_bytes()?;
-    // signature: exactly 65 bytes (structural; EIP-6492 envelopes are LONGER
-    // than 65 bytes and intentionally pass this length check as pass-through —
-    // the facilitator verifies those; the EOA prefilter in Stage 2 checks the
-    // exact-65 case itself)
+    // signature shape: hex, AT LEAST 65 bytes. Exactly-65 is the plain EOA
+    // case (eligible for the Stage-2 local ecrecover prefilter); LONGER
+    // signatures are EIP-6492 smart-account envelopes — they PASS here and
+    // skip straight to the facilitator, which verifies them (G4). Only
+    // too-short, odd-length, or non-hex fails.
     let sig = p
         .payload
         .signature
         .strip_prefix("0x")
         .unwrap_or(&p.payload.signature);
-    if sig.len() != 130 || !sig.chars().all(|c| c.is_ascii_hexdigit()) {
+    if sig.len() < 130 || sig.len() % 2 != 0 || !sig.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(X402Error::BadSignature(p.payload.signature.len()));
     }
     // G5: settle margin — validBefore ≥ now + margin

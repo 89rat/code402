@@ -180,6 +180,35 @@ fn gate_rejects_numeric_timestamps_and_wrong_version() {
 }
 
 #[test]
+fn gate_passes_6492_envelopes_rejects_short() {
+    // EIP-6492 envelope: 65-byte sig + magic suffix — longer than 65 bytes.
+    // Must PASS the structural gate (facilitator verifies it downstream, G4).
+    let mut pp = base_payload();
+    let now = 1_740_672_100;
+    let inner = pp.payload.signature.clone();
+    let inner = inner.strip_prefix("0x").unwrap_or(&inner);
+    pp.payload.signature = format!("{inner}6492649264926492649264926492649264926492649264926492649264926492");
+    assert!(
+        structural_gate(&pp, &gate_ctx(&pp.accepted, now)).is_ok(),
+        "6492-style long envelope must pass through to facilitator"
+    );
+    // too-short signature must fail
+    let mut pp2 = base_payload();
+    pp2.payload.signature = format!("0x{}", "ab".repeat(64)); // 64 bytes < 65
+    assert!(matches!(
+        structural_gate(&pp2, &gate_ctx(&pp2.accepted, now)),
+        Err(X402Error::BadSignature(_))
+    ));
+    // odd-length hex must fail
+    let mut pp3 = base_payload();
+    pp3.payload.signature = format!("0x{}", "a".repeat(131)); // 131 nibbles = odd
+    assert!(matches!(
+        structural_gate(&pp3, &gate_ctx(&pp3.accepted, now)),
+        Err(X402Error::BadSignature(_))
+    ));
+}
+
+#[test]
 fn gate_rejects_resource_url_mismatch() {
     let mut pp = base_payload();
     let now = 1_740_672_100;
