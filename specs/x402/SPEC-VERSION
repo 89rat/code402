@@ -28,3 +28,11 @@ facilitator_api    = v2 (as of 2026-08-19)
 # 1. Conformance tests MUST read this file (parse these keys) and fail on drift.
 # 2. Bumping any value requires a reviews/ note stating what changed upstream.
 # 3. Spec text in specs/x402/ is the ONLY wire-format authority. No memory.
+
+# Per-file SHA-256 of vendored specs (offline drift detection; conformance
+# test asserts these match the files on disk).
+sha256_x402-specification-v2.md = 7d9be66cbcf51d3593e17ac51a623395f8ccb86fd3d76a27919419e4ce83efef
+sha256_http.md                   = 4f0298aaa23ac75de0eb49b1e96e6e67a5b910d7527b3a71c63e426b3bf5bdfb
+sha256_scheme_exact_evm.md       = 186111e25a5bdd5be839635ba1c441885567de09b57bdd93f78e465ca3b8e792
+sha256_scheme_upto.md            = 9d4e5cce82ea97e6e40d0005091098d55e40dd4b9994d6adfc1a49b66e885adc
+sha256_LICENSE                   = 50e6751797c50dedd75ef1b8a0d9e42f5f8472e9fbce91f34718e9f97b0c780a

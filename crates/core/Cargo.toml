@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
+base64 = "0.22"
 k256.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -13,3 +14,4 @@ thiserror.workspace = true
 
 [dev-dependencies]
 hex = "0.4"
+sha2 = "0.10"
