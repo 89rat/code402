@@ -36,7 +36,7 @@ pub const X402_VERSION: u64 = 2;
 // parse/structural causes. Never leak internal names on the wire verbatim.
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum X402Error {
     #[error("header exceeds size cap ({0} > {MAX_HEADER_B64_BYTES} b64 chars)")]
     HeaderTooLarge(usize),

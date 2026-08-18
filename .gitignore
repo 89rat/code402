@@ -10,3 +10,5 @@ site/dist/
 .staging-*
 collab/logs/
 tests/legacy-snapshot/semantic-voucher.txt
+tests/vectors/gen/node_modules/
+!tests/vectors/gen/package-lock.json
