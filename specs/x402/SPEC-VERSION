@@ -1,0 +1,30 @@
+# SPEC-VERSION — read by CI; a mismatch fails the build loudly
+
+# Canonical spec source (x402-foundation is canonical; coinbase/x402 is the
+# historical origin repo — do NOT pin from it).
+spec_repo    = https://github.com/x402-foundation/x402
+spec_commit  = ddf98ee511d30031f1923915f2d46084bb62cd4f
+spec_date    = 2026-08-19 (vendored)
+spec_files   = specs/x402/x402-specification-v2.md
+               specs/x402/http.md
+               specs/x402/scheme_exact_evm.md
+               specs/x402/scheme_upto.md (reference only, not implemented)
+spec_license = specs/x402/LICENSE (vendored)
+
+# Official TS SDK used to generate bidirectional conformance vectors.
+# 2.x line = x402 v2. The unscoped 1.x packages (x402, x402-fetch @ 1.2.0)
+# are v1-era and must not be used for v2 vectors.
+ts_sdk       = @x402/fetch
+ts_sdk_ver   = 2.22.0
+
+# Facilitator (Coinbase CDP). Details verified in reviews/cdp-findings.md.
+# NOTE: v2 REST API — paths are /v2/x402/verify, /v2/x402/settle (NOT /platform/v1).
+facilitator_verify = POST {base}/v2/x402/verify
+facilitator_settle = POST {base}/v2/x402/settle
+facilitator_base   = https://api.cdp.coinbase.com (exact host path confirmed at Stage 4)
+facilitator_api    = v2 (as of 2026-08-19)
+
+# Rules
+# 1. Conformance tests MUST read this file (parse these keys) and fail on drift.
+# 2. Bumping any value requires a reviews/ note stating what changed upstream.
+# 3. Spec text in specs/x402/ is the ONLY wire-format authority. No memory.

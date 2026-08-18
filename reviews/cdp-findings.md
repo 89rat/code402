@@ -1,0 +1,56 @@
+# CDP x402 Facilitator findings — 2026-08-19 (plan-rev3 G8)
+
+Source: docs.cdp.coinbase.com/x402/seller/facilitator + API reference
+(`/api-reference/v2/rest-api/x402-facilitator/x402-facilitator`). Verified by
+web fetch 2026-08-19; re-verify at Stage 4 implementation time.
+
+## Endpoints (v2 REST)
+- `POST /v2/x402/verify` — verify payment (scheme+network aware)
+- `POST /v2/x402/settle` — on-chain settlement
+- Supported-schemes/networks endpoint exists ("programmatic source of truth")
+  → G7 health probe target; exact path to confirm at implementation.
+
+## Authentication
+- "Authenticates with your CDP API key ID and secret." Exact wire mechanism
+  (header vs JWT; ES256 vs Ed25519) NOT stated on fetched pages — confirm from
+  the API reference at Stage 4 before choosing the WASM signing crate
+  (plan G10: `ed25519-dalek`/`p256`, not `ring`).
+
+## Economics (updates G4 sizing)
+- **Verification is always free.** Fees apply only to onchain activity.
+- 1,000 onchain facilitator transactions/month free; then **$0.001 per onchain
+  settlement**.
+- ⇒ The budget the structural gate protects is primarily the **settle** path
+  (settle must only ever follow verify-success + DO claim), not verify volume.
+  Rate limits on verify still matter for latency/abuse, not cost.
+- `batch-settlement` scheme: thousands verified offchain free, one onchain tx —
+  relevant to later cost optimization (out of scope for now).
+
+## Networks & schemes
+- EVM (ERC-20 via EIP-3009 or Permit2): Base `eip155:8453`, Base Sepolia
+  `eip155:84532`, Polygon `eip155:137`, Arbitrum `eip155:42161`,
+  World `eip155:480`, World Sepolia `eip155:4801`.
+- Solana: mainnet + devnet (`exact` only).
+- Schemes on EVM: `exact`, `upto`, `batch-settlement` (all three CDP-supported;
+  we implement `exact` only per locked decision 4).
+- Same provider serves testnet and mainnet.
+
+## Sanctions/KYT (G8 one-line finding)
+- **OFAC + KYT screening is the facilitator's built-in responsibility** — it
+  "identifies and declines payments involving sanctioned or high-risk
+  addresses." Record: screening liability sits with CDP, not code402.
+
+## Rate limits
+- Not published on fetched pages (FAQ points to CDP SLO page: 99.9%
+  availability target for verify/settle). Treat as unknown; breaker thresholds
+  (G8) sized conservatively until observed. TODO Stage 4: measure and record.
+
+## Legacy traffic measurement (G1) — DECISION: HARD-CUT
+D1 remote query 2026-08-19:
+- staging `code402-ledger-staging`: 2 CHALLENGED, 1 SETTLED (self-tests only)
+- prod `code402-ledger-prod`: 40 CHALLENGED (unpaid probes), 1
+  PENDING_SETTLEMENT (never confirmed), **0 SETTLED**
+⇒ Zero completed legacy paid traffic ever, in either environment. Per plan G1:
+**hard-cut the legacy X-PAYMENT route at Stage 5; no 90-day sunset machinery.**
+(The 40 prod challenges are unpaid probes; they receive the v2 402 going
+forward, which standard clients can actually answer.)

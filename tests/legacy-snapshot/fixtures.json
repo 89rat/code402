@@ -1,0 +1,609 @@
+{
+  "bad_body": {
+    "body": {
+      "error": {
+        "code": "INPUT_SCHEMA_INVALID",
+        "message": "body must be JSON {input, idempotency_key?}",
+        "retryable": false
+      }
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 400 Bad Request",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 400
+  },
+  "bad_voucher": {
+    "body": {
+      "error": {
+        "code": "INVALID_SIGNATURE",
+        "message": "X-PAYMENT must be a JSON PaymentVoucher",
+        "retryable": false
+      }
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 401 Unauthorized",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 401
+  },
+  "challenge_402": {
+    "body": {
+      "eip712": {
+        "name": "USDC",
+        "version": "2"
+      },
+      "expires_at": 1787085169,
+      "expires_at_rfc3339": "2026-08-18T20:32:49Z",
+      "network": {
+        "chain_id": 84532,
+        "name": "base-sepolia"
+      },
+      "nonce": "0xf0ae02d643f1a967b738c1193bb8de2f7021decf61a7c3ad7787bcf1086e5533",
+      "payment_intent_id": "req-1787084869055",
+      "price": {
+        "amount": "5000",
+        "asset": "USDC",
+        "decimals": 6,
+        "token_address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+      },
+      "proof": {
+        "header": "X-PAYMENT",
+        "type": "eip3009_voucher"
+      },
+      "recipient": "0x000000000000000000000000000000000000dEaD",
+      "request_id": "req-1787084869055",
+      "service_id": "vat-mod97-check",
+      "settlement_mode": "facilitated_direct",
+      "status_url": "/v1/requests/req-1787084869055",
+      "tool": "vat-mod97-check",
+      "x402_version": 1
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 402 Payment Required",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 402
+  },
+  "garbage_payment": {
+    "body": {
+      "error": {
+        "code": "INVALID_SIGNATURE",
+        "message": "X-PAYMENT must be a JSON PaymentVoucher",
+        "retryable": false
+      }
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 401 Unauthorized",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 401
+  },
+  "llms_txt": {
+    "body": "# code402\n\n> Pay-per-call deterministic tools for autonomous agents, settled via x402\n> (HTTP 402) in USDC. Every paid call returns a signed secp256k1 receipt binding\n> input hash, output hash, tool version, and timestamp \u2014 third-party verifiable.\n\nOPERATOR: code402.dev is operated by JUANA LIMITED, Company No. 14043409,\nregistered in England & Wales. Registered office: Unit 7, Edison Building,\nCoventry, CV1 4JA, United Kingdom. Security contact: security@code402.dev.\n\nENVIRONMENT: production. Endpoint https://code402.dev \u2014 Base mainnet\n(chain 8453), real USDC. Staging for integration testing:\nhttps://code402-edge.akrivis.workers.dev \u2014 Base Sepolia testnet\n(chain 84532), test USDC. The 402 challenge body is always authoritative\nfor recipient, amount, chain, and nonce.\n\n## How to call (agent quickstart)\n\n- No accounts, no API keys. Payment is the credential.\n- POST /v1/tools/{tool}/call unpaid \u2192 HTTP 402 challenge with price, recipient,\n  nonce, expiry.\n- Sign an EIP-3009 TransferWithAuthorization (EIP-712 typed data) for the\n  challenge amount, retry the identical request with header\n  X-PAYMENT: {\"auth\":{...},\"signature\":[...65 bytes]} \u2192 HTTP 200.\n- Response headers carry X-Schema-Version. Response schemas are frozen per\n  version; breaking changes only ever ship under a new schema version.\n- Idempotency: pass idempotency_key; a repeated key returns\n  {idempotent_replay:true, receipt_ref} and is never double-charged.\n\n## Tools (all strictly deterministic: identical input \u2192 byte-identical output)\n\n- vat-mod97-check \u2014 Validate a UK VAT registration number using the HMRC\n  modulus-97 checksum (standard and alternative variants). Use when an agent\n  must verify a counterparty VAT identifier before invoicing, onboarding, or\n  tax treatment decisions. Input: {\"input\":{\"vat_number\":\"GB...\"}}.\n  Output: {valid:boolean, canonical:string}.\n\n- company-number-format \u2014 Structural validation of a UK Companies House\n  company registration number (8 characters; all digits or lette",
+    "headers": [
+      "Cache-Control: public, max-age=300",
+      "Content-Type: text/plain; charset=utf-8",
+      "HTTP/1.1 200 OK"
+    ],
+    "status": 200
+  },
+  "manifest": {
+    "body": {
+      "asset": "USDC",
+      "authorization_type": "TransferWithAuthorization (EIP-3009)",
+      "challenge_ttl_seconds": 300,
+      "decimals": 6,
+      "default_price": {
+        "amount": "5000",
+        "per": "call"
+      },
+      "eip712_domain": {
+        "chainId": 84532,
+        "name": "USDC",
+        "verifyingContract": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        "version": "2"
+      },
+      "environment": "staging",
+      "network": {
+        "chain_id": 84532,
+        "name": "base-sepolia"
+      },
+      "notes": "The 402 challenge body is always authoritative for recipient, amount, chain, and nonce. Do not hardcode.",
+      "receipt_signing_address": "0x7b885c42b47671a91b3d81694ce18d38e25e7149",
+      "recipient": "0x000000000000000000000000000000000000dEaD",
+      "signature_scheme": "EIP-712",
+      "token_address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "x402_version": 1
+    },
+    "headers": [
+      "Cache-Control: public, max-age=300",
+      "Content-Type: application/json",
+      "HTTP/1.1 200 OK"
+    ],
+    "status": 200
+  },
+  "mcp_manifest": {
+    "body": {
+      "auth": {
+        "details": "https://code402.dev/.well-known/x402.json",
+        "type": "x402"
+      },
+      "description": "Pay-per-call deterministic tools for autonomous agents, settled via x402 (HTTP 402) in USDC. No accounts or API keys: payment is the credential. Every paid call returns a signed secp256k1 receipt binding input hash, output hash, tool version, and timestamp. Environment: production on Base mainnet (chain 8453, USDC). Staging: https://code402-edge.akrivis.workers.dev (Base Sepolia 84532, test USDC).",
+      "execution": {
+        "audit": "append-only ledger with signed receipts",
+        "determinism": "strict \u2014 identical input yields byte-identical output per tool version",
+        "schema_contract": "X-Schema-Version header on every response; schemas frozen per version"
+      },
+      "name": "code402",
+      "provider": {
+        "contact": "security@code402.dev",
+        "legal_entity": "JUANA LIMITED, Company No. 14043409, registered in England & Wales, Unit 7, Edison Building, Coventry, CV1 4JA, United Kingdom",
+        "name": "JUANA LIMITED",
+        "url": "https://code402.dev"
+      },
+      "tools": [
+        {
+          "description": "Validates a UK VAT registration number via the HMRC modulus-97 checksum (standard and alternative variants) and returns the canonical 9-digit body. Use when verifying a counterparty VAT identifier before invoicing, onboarding, or tax-treatment decisions. Deterministic; safe to cache by input.",
+          "endpoint": "https://code402.dev/v1/tools/vat-mod97-check/call",
+          "input_schema": {
+            "properties": {
+              "idempotency_key": {
+                "type": "string"
+              },
+              "input": {
+                "properties": {
+                  "vat_number": {
+                    "description": "VAT number with or without GB prefix",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "vat_number"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "type": "object"
+          },
+          "method": "POST",
+          "name": "vat-mod97-check",
+          "price": {
+            "amount": "5000",
+            "asset": "USDC",
+            "decimals": 6
+          },
+          "rate_limit": {
+            "requests_per_minute": 600
+          }
+        },
+        {
+          "description": "Structurally validates a UK Companies House company registration number (8 characters: all digits, or letter prefix plus digits). Use when screening corporate counterparties at high volume before deeper KYB lookups. Deterministic; safe to cache by input.",
+          "endpoint": "https://code402.dev/v1/tools/company-number-format/call",
+          "input_schema": {
+            "properties": {
+              "idempotency_key": {
+                "type": "string"
+              },
+              "input": {
+                "properties": {
+                  "company_number": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "company_number"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "type": "object"
+          },
+          "method": "POST",
+          "name": "company-number-format",
+          "price": {
+            "amount": "2000",
+            "asset": "USDC",
+            "decimals": 6
+          },
+          "rate_limit": {
+            "requests_per_minute": 600
+          }
+        },
+        {
+          "description": "Distills raw client-supplied HTML into clean plain text sized for LLM context windows (default 4000 bytes, max 16000). Never fetches URLs. Use to cut token spend before feeding web content to a model. Returns clean_text plus original_bytes, output_bytes, and estimated_tokens_saved. Deterministic; safe to cache by input.",
+          "endpoint": "https://code402.dev/v1/tools/context-distill/call",
+          "input_schema": {
+            "properties": {
+              "idempotency_key": {
+                "type": "string"
+              },
+              "input": {
+                "properties": {
+                  "html": {
+                    "type": "string"
+                  },
+                  "max_bytes": {
+                    "default": 4000,
+                    "maximum": 16000,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "html"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "type": "object"
+          },
+          "method": "POST",
+          "name": "context-distill",
+          "price": {
+            "amount": "10000",
+            "asset": "USDC",
+            "decimals": 6
+          },
+          "rate_limit": {
+            "requests_per_minute": 600
+          }
+        },
+        {
+          "description": "Validates an International Bank Account Number via the ISO 13616 mod-97 checksum (structure, country/check digits, full checksum). Use before initiating or recording any cross-border payment instruction. Deterministic; safe to cache by input.",
+          "endpoint": "https://code402.dev/v1/tools/iban-check/call",
+          "input_schema": {
+            "properties": {
+              "idempotency_key": {
+                "type": "string"
+              },
+              "input": {
+                "properties": {
+                  "iban": {
+                    "description": "IBAN with or without spaces",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "iban"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "type": "object"
+          },
+          "method": "POST",
+          "name": "iban-check",
+          "price": {
+            "amount": "2000",
+            "asset": "USDC",
+            "decimals": 6
+          },
+          "rate_limit": {
+            "requests_per_minute": 600
+          }
+        },
+        {
+          "description": "Validates a Legal Entity Identifier via the ISO 17442 mod 97-10 checksum. Use when screening institutional counterparties before KYB or regulatory workflows. Deterministic; safe to cache by input.",
+          "endpoint": "https://code402.dev/v1/tools/lei-check/call",
+          "input_schema": {
+            "properties": {
+              "idempotency_key": {
+                "type": "string"
+              },
+              "input": {
+                "properties": {
+                  "lei": {
+                    "description": "20-character LEI",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "lei"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "type": "object"
+          },
+          "method": "POST",
+          "name": "lei-check",
+          "price": {
+            "amount": "2000",
+            "asset": "USDC",
+            "decimals": 6
+          },
+          "rate_limit": {
+            "requests_per_minute": 600
+          }
+        },
+        {
+          "description": "Validates an International Securities Identification Number via the ISO 6166 Luhn-variant checksum over letter-expanded digits. Use before recording trades, positions, or security references. Deterministic; safe to cache by input.",
+          "endpoint": "https://code402.dev/v1/tools/isin-check/call",
+          "input_schema": {
+            "properties": {
+              "idempotency_key": {
+                "type": "string"
+              },
+              "input": {
+                "properties": {
+                  "isin": {
+                    "description": "12-character ISIN",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "isin"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "type": "object"
+          },
+          "method": "POST",
+          "name": "isin-check",
+          "price": {
+            "amount": "2000",
+            "asset": "USDC",
+            "decimals": 6
+          },
+          "rate_limit": {
+            "requests_per_minute": 600
+          }
+        },
+        {
+          "description": "Generic Luhn (mod-10) validation for card numbers, IMEIs, and similar identifiers (8-19 digits; spaces and dashes tolerated). Deterministic; safe to cache by input.",
+          "endpoint": "https://code402.dev/v1/tools/luhn-check/call",
+          "input_schema": {
+            "properties": {
+              "idempotency_key": {
+                "type": "string"
+              },
+              "input": {
+                "properties": {
+                  "number": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "number"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "type": "object"
+          },
+          "method": "POST",
+          "name": "luhn-check",
+          "price": {
+            "amount": "2000",
+            "asset": "USDC",
+            "decimals": 6
+          },
+          "rate_limit": {
+            "requests_per_minute": 600
+          }
+        },
+        {
+          "description": "Structural validation of a SWIFT Business Identifier Code (ISO 9362): 8 or 11 characters \u2014 4-letter institution, 2-letter country, 2-character location, optional 3-character branch. Deterministic; safe to cache by input.",
+          "endpoint": "https://code402.dev/v1/tools/swift-bic-check/call",
+          "input_schema": {
+            "properties": {
+              "idempotency_key": {
+                "type": "string"
+              },
+              "input": {
+                "properties": {
+                  "bic": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "bic"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "type": "object"
+          },
+          "method": "POST",
+          "name": "swift-bic-check",
+          "price": {
+            "amount": "2000",
+            "asset": "USDC",
+            "decimals": 6
+          },
+          "rate_limit": {
+            "requests_per_minute": 600
+          }
+        },
+        {
+          "description": "Validates an EAN-13 / UPC-A product barcode via the GS1 check digit. Use in catalog, logistics, and retail data pipelines. Deterministic; safe to cache by input.",
+          "endpoint": "https://code402.dev/v1/tools/ean13-check/call",
+          "input_schema": {
+            "properties": {
+              "idempotency_key": {
+                "type": "string"
+              },
+              "input": {
+                "properties": {
+                  "ean": {
+                    "description": "13-digit EAN",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "ean"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "type": "object"
+          },
+          "method": "POST",
+          "name": "ean13-check",
+          "price": {
+            "amount": "2000",
+            "asset": "USDC",
+            "decimals": 6
+          },
+          "rate_limit": {
+            "requests_per_minute": 600
+          }
+        },
+        {
+          "description": "Validates an Indian Goods and Services Tax Identification Number: 15-character structure, state code 01-38, embedded PAN pattern, and the GSTN base-36 checksum. Returns the canonical GSTIN. Use before invoicing, vendor onboarding, or tax filings involving Indian entities. Deterministic; safe to cache by input.",
+          "endpoint": "https://code402.dev/v1/tools/gstin-check/call",
+          "input_schema": {
+            "properties": {
+              "idempotency_key": {
+                "type": "string"
+              },
+              "input": {
+                "properties": {
+                  "gstin": {
+                    "description": "15-character GSTIN",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "gstin"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "type": "object"
+          },
+          "method": "POST",
+          "name": "gstin-check",
+          "price": {
+            "amount": "2000",
+            "asset": "USDC",
+            "decimals": 6
+          },
+          "rate_limit": {
+            "requests_per_minute": 600
+          }
+        }
+      ],
+      "version": "1.1.0"
+    },
+    "headers": [
+      "Cache-Control: public, max-age=300",
+      "Content-Type: application/json",
+      "HTTP/1.1 200 OK"
+    ],
+    "status": 200
+  },
+  "missing_field": {
+    "body": {
+      "error": {
+        "code": "INPUT_SCHEMA_INVALID",
+        "message": "input field missing or not a string",
+        "retryable": false
+      }
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 400 Bad Request",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 400
+  },
+  "openapi": {
+    "body": "openapi: 3.1.0\r\ninfo:\r\n  title: code402 Deterministic Tools API\r\n  version: 1.0.0\r\n  description: >-\r\n    Pay-per-call deterministic tools for autonomous agents, settled via x402\r\n    (HTTP 402) in USDC. Call unpaid to receive a 402 challenge; pay via an\r\n    EIP-3009 TransferWithAuthorization; retry with the X-PAYMENT header to\r\n    receive the deterministic output plus a signed secp256k1 receipt binding\r\n    input hash, output hash, tool version, and timestamp. All tools are\r\n    strictly deterministic: identical input yields byte-identical output per\r\n    tool version. Response schemas are frozen per X-Schema-Version; breaking\r\n    changes ship only under a new schema version.\r\n  x-environment: production (Base mainnet, chain 8453, USDC)\r\nservers:\r\n  - url: https://code402.dev\r\n    description: production (Base mainnet, USDC)\r\n  - url: https://code402-edge.akrivis.workers.dev\r\n    description: staging (Base Sepolia, test USDC)\r\npaths:\r\n  /v1/tools/{tool}/call:\r\n    post:\r\n      summary: Pay-per-call deterministic tool execution\r\n      description: >-\r\n        Executes a deterministic, machine-verifiable tool. Without payment,\r\n        returns a 402 challenge containing price, recipient, nonce, and expiry.\r\n        With a valid X-PAYMENT voucher, returns the tool output and a signed\r\n        receipt. Pass idempotency_key to make retries safe: a repeated key\r\n        returns idempotent_replay:true with the original receipt reference and\r\n        is never double-charged.\r\n      parameters:\r\n        - name: tool\r\n          in: path\r\n          required: true\r\n          description: Tool identifier.\r\n          schema:\r\n            type: string\r\n            enum: [vat-mod97-check, company-number-format, context-distill, iban-check, lei-check, isin-check, luhn-check, swift-bic-check, ean13-check, gstin-check]\r\n      requestBody:\r\n        required: true\r\n        content:\r\n          application/json:\r\n            schema:\r\n              type: object\r\n              required:",
+    "headers": [
+      "Cache-Control: public, max-age=300",
+      "Content-Type: application/yaml",
+      "HTTP/1.1 200 OK"
+    ],
+    "status": 200
+  },
+  "trust_badge_unrated": {
+    "body": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"147\" height=\"20\" role=\"img\" aria-label=\"code402 trust: unrated\"><rect width=\"92\" height=\"20\" fill=\"#24292f\"/><rect x=\"92\" width=\"55\" height=\"20\" fill=\"#6e7781\"/><text x=\"6\" y=\"14\" fill=\"#ffffff\" font-family=\"monospace\" font-size=\"11\">code402 trust</text><text x=\"98\" y=\"14\" fill=\"#ffffff\" font-family=\"monospace\" font-size=\"11\">unrated</text></svg>",
+    "headers": [
+      "Cache-Control: public, max-age=3600",
+      "Content-Type: image/svg+xml",
+      "HTTP/1.1 200 OK"
+    ],
+    "status": 200
+  },
+  "trust_missing": {
+    "body": {
+      "error": {
+        "code": "NOT_FOUND",
+        "message": "no trust record for this domain",
+        "retryable": false
+      }
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 404 Not Found",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 404
+  },
+  "unknown_tool": {
+    "body": {
+      "error": {
+        "code": "INPUT_SCHEMA_INVALID",
+        "message": "unknown tool",
+        "retryable": false
+      }
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 400 Bad Request",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 400
+  },
+  "wrong_route": {
+    "body": {
+      "error": {
+        "code": "INPUT_SCHEMA_INVALID",
+        "message": "route must be POST /v1/tools/{tool}/call",
+        "retryable": false
+      }
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 400 Bad Request",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 400
+  }
+}
