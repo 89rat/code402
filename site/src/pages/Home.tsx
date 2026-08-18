@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
+
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Zap, ShieldCheck, FileCheck2 } from 'lucide-react'
@@ -101,32 +101,63 @@ export default function Home() {
       <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-24 lg:grid-cols-2">
         <div>
           <Badge variant="outline" className="mb-6 border-[#27272A] font-mono text-xs text-[#06B6D4]">
-            x402_version: 1 · chain: base · asset: USDC
+            non-custodial · x402 · USDC on Base · open protocol
           </Badge>
           <h1 className="text-4xl font-bold leading-tight tracking-tight md:text-5xl">
-            The Settlement Layer for the Agentic Economy.
+            Any API can sell to AI agents. In five minutes. Without touching payment code.
           </h1>
           <p className="mt-6 text-lg leading-relaxed text-[#A1A1AA]">
-            Code402 provides deterministic, machine-verifiable APIs with native x402
-            (HTTP 402) payment support. Pay per call. Receive instant cryptographic
-            receipts. Zero human intervention required.
+            Register your wallet, list your endpoint — and every x402-capable agent on earth
+            can pay you per call, directly. We add discovery, commerce terms, receipts, and
+            reputation. Buyers' USDC goes straight to your wallet. We never hold money.
           </p>
-          <div className="mt-8 flex gap-4">
-            <Link
-              to="/docs"
+          <div className="mt-8 flex flex-wrap gap-4">
+            <a
+              href="https://gateway.code402.dev/v1/services"
               className="rounded-md bg-[#06B6D4] px-5 py-2.5 text-sm font-semibold text-[#09090B] hover:bg-[#22d3ee] transition-colors"
             >
-              Read the docs
-            </Link>
+              Start selling →
+            </a>
             <a
-              href="/.well-known/mcp.json"
+              href="https://atlas.code402.dev"
               className="rounded-md border border-[#27272A] px-5 py-2.5 font-mono text-sm text-[#A1A1AA] hover:border-[#06B6D4] hover:text-[#FAFAFA] transition-colors"
             >
-              mcp.json →
+              agents: search 189+ services →
             </a>
+          </div>
+          <div className="mt-8 grid grid-cols-3 gap-4 font-mono text-xs text-[#52525B]">
+            <div><span className="text-[#FAFAFA]">2%</span> seller fee<br />nothing for buyers</div>
+            <div><span className="text-[#FAFAFA]">$0.001+</span> per-call pricing<br />settled on-chain</div>
+            <div><span className="text-[#FAFAFA]">0</span> chargebacks possible<br />signed receipt every call</div>
           </div>
         </div>
         <TerminalLoop />
+      </section>
+
+      <section className="border-t border-[#27272A]">
+        <div className="mx-auto max-w-6xl px-6 py-20">
+          <h2 className="text-2xl font-semibold tracking-tight">How selling works</h2>
+          <div className="mt-8 grid gap-6 md:grid-cols-3">
+            {[
+              { n: "01", t: "Register your wallet", c: 'curl -X POST /v1/sellers\n{ "id": "you", "wallet": "0x…", "name": "Your API" }' },
+              { n: "02", t: "List your endpoint", c: 'POST /v1/sellers/you/services\n{ "serviceId": "my-api",\n  "upstream_url": "https://…",\n  "price_usd": "$0.05" }' },
+              { n: "03", t: "Agents pay you direct", c: 'GET /s/you/my-api\n← 402 → agent signs EIP-3009\n← 200 + receipt · USDC → your wallet' },
+            ].map((s) => (
+              <Card key={s.n} className="border-[#27272A] bg-[#18181B]">
+                <CardHeader>
+                  <span className="font-mono text-xs text-[#06B6D4]">{s.n}</span>
+                  <CardTitle className="text-base text-[#FAFAFA]">{s.t}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <pre className="overflow-x-auto rounded-md bg-[#09090B] p-3 font-mono text-[11px] leading-5 text-[#A1A1AA]">{s.c}</pre>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <p className="mt-6 font-mono text-xs text-[#52525B]">
+            Live now on gateway.code402.dev — testnet today, mainnet after the security gate.
+          </p>
+        </div>
       </section>
 
       <section className="border-t border-[#27272A]">
