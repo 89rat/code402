@@ -1,0 +1,225 @@
+{
+  "name": "code402",
+  "version": "1.1.0",
+  "description": "Pay-per-call deterministic tools for autonomous agents, settled via x402 (HTTP 402) in USDC. No accounts or API keys: payment is the credential. Every paid call returns a signed secp256k1 receipt binding input hash, output hash, tool version, and timestamp. Environment: production on Base mainnet (chain 8453, USDC). Staging: https://code402-edge.akrivis.workers.dev (Base Sepolia 84532, test USDC).",
+  "provider": {
+    "name": "JUANA LIMITED",
+    "url": "https://code402.dev",
+    "legal_entity": "JUANA LIMITED, Company No. 14043409, registered in England & Wales, Unit 7, Edison Building, Coventry, CV1 4JA, United Kingdom",
+    "contact": "security@code402.dev"
+  },
+  "auth": {
+    "type": "x402",
+    "details": "https://code402.dev/.well-known/x402.json"
+  },
+  "execution": {
+    "determinism": "strict — identical input yields byte-identical output per tool version",
+    "schema_contract": "X-Schema-Version header on every response; schemas frozen per version",
+    "audit": "append-only ledger with signed receipts"
+  },
+  "tools": [
+    {
+      "name": "vat-mod97-check",
+      "description": "Validates a UK VAT registration number via the HMRC modulus-97 checksum (standard and alternative variants) and returns the canonical 9-digit body. Use when verifying a counterparty VAT identifier before invoicing, onboarding, or tax-treatment decisions. Deterministic; safe to cache by input.",
+      "endpoint": "https://code402.dev/v1/tools/vat-mod97-check/call",
+      "method": "POST",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": { "vat_number": { "type": "string", "description": "VAT number with or without GB prefix" } },
+            "required": ["vat_number"]
+          },
+          "idempotency_key": { "type": "string" }
+        },
+        "required": ["input"]
+      },
+      "price": { "amount": "5000", "decimals": 6, "asset": "USDC" },
+      "rate_limit": { "requests_per_minute": 600 }
+    },
+    {
+      "name": "company-number-format",
+      "description": "Structurally validates a UK Companies House company registration number (8 characters: all digits, or letter prefix plus digits). Use when screening corporate counterparties at high volume before deeper KYB lookups. Deterministic; safe to cache by input.",
+      "endpoint": "https://code402.dev/v1/tools/company-number-format/call",
+      "method": "POST",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": { "company_number": { "type": "string" } },
+            "required": ["company_number"]
+          },
+          "idempotency_key": { "type": "string" }
+        },
+        "required": ["input"]
+      },
+      "price": { "amount": "2000", "decimals": 6, "asset": "USDC" },
+      "rate_limit": { "requests_per_minute": 600 }
+    },
+    {
+      "name": "context-distill",
+      "description": "Distills raw client-supplied HTML into clean plain text sized for LLM context windows (default 4000 bytes, max 16000). Never fetches URLs. Use to cut token spend before feeding web content to a model. Returns clean_text plus original_bytes, output_bytes, and estimated_tokens_saved. Deterministic; safe to cache by input.",
+      "endpoint": "https://code402.dev/v1/tools/context-distill/call",
+      "method": "POST",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {
+              "html": { "type": "string" },
+              "max_bytes": { "type": "integer", "maximum": 16000, "default": 4000 }
+            },
+            "required": ["html"]
+          },
+          "idempotency_key": { "type": "string" }
+        },
+        "required": ["input"]
+      },
+      "price": { "amount": "10000", "decimals": 6, "asset": "USDC" },
+      "rate_limit": { "requests_per_minute": 600 }
+    },
+    {
+      "name": "iban-check",
+      "description": "Validates an International Bank Account Number via the ISO 13616 mod-97 checksum (structure, country/check digits, full checksum). Use before initiating or recording any cross-border payment instruction. Deterministic; safe to cache by input.",
+      "endpoint": "https://code402.dev/v1/tools/iban-check/call",
+      "method": "POST",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": { "iban": { "type": "string", "description": "IBAN with or without spaces" } },
+            "required": ["iban"]
+          },
+          "idempotency_key": { "type": "string" }
+        },
+        "required": ["input"]
+      },
+      "price": { "amount": "2000", "decimals": 6, "asset": "USDC" },
+      "rate_limit": { "requests_per_minute": 600 }
+    },
+    {
+      "name": "lei-check",
+      "description": "Validates a Legal Entity Identifier via the ISO 17442 mod 97-10 checksum. Use when screening institutional counterparties before KYB or regulatory workflows. Deterministic; safe to cache by input.",
+      "endpoint": "https://code402.dev/v1/tools/lei-check/call",
+      "method": "POST",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": { "lei": { "type": "string", "description": "20-character LEI" } },
+            "required": ["lei"]
+          },
+          "idempotency_key": { "type": "string" }
+        },
+        "required": ["input"]
+      },
+      "price": { "amount": "2000", "decimals": 6, "asset": "USDC" },
+      "rate_limit": { "requests_per_minute": 600 }
+    },
+    {
+      "name": "isin-check",
+      "description": "Validates an International Securities Identification Number via the ISO 6166 Luhn-variant checksum over letter-expanded digits. Use before recording trades, positions, or security references. Deterministic; safe to cache by input.",
+      "endpoint": "https://code402.dev/v1/tools/isin-check/call",
+      "method": "POST",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": { "isin": { "type": "string", "description": "12-character ISIN" } },
+            "required": ["isin"]
+          },
+          "idempotency_key": { "type": "string" }
+        },
+        "required": ["input"]
+      },
+      "price": { "amount": "2000", "decimals": 6, "asset": "USDC" },
+      "rate_limit": { "requests_per_minute": 600 }
+    },
+    {
+      "name": "luhn-check",
+      "description": "Generic Luhn (mod-10) validation for card numbers, IMEIs, and similar identifiers (8-19 digits; spaces and dashes tolerated). Deterministic; safe to cache by input.",
+      "endpoint": "https://code402.dev/v1/tools/luhn-check/call",
+      "method": "POST",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": { "number": { "type": "string" } },
+            "required": ["number"]
+          },
+          "idempotency_key": { "type": "string" }
+        },
+        "required": ["input"]
+      },
+      "price": { "amount": "2000", "decimals": 6, "asset": "USDC" },
+      "rate_limit": { "requests_per_minute": 600 }
+    },
+    {
+      "name": "swift-bic-check",
+      "description": "Structural validation of a SWIFT Business Identifier Code (ISO 9362): 8 or 11 characters — 4-letter institution, 2-letter country, 2-character location, optional 3-character branch. Deterministic; safe to cache by input.",
+      "endpoint": "https://code402.dev/v1/tools/swift-bic-check/call",
+      "method": "POST",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": { "bic": { "type": "string" } },
+            "required": ["bic"]
+          },
+          "idempotency_key": { "type": "string" }
+        },
+        "required": ["input"]
+      },
+      "price": { "amount": "2000", "decimals": 6, "asset": "USDC" },
+      "rate_limit": { "requests_per_minute": 600 }
+    },
+    {
+      "name": "ean13-check",
+      "description": "Validates an EAN-13 / UPC-A product barcode via the GS1 check digit. Use in catalog, logistics, and retail data pipelines. Deterministic; safe to cache by input.",
+      "endpoint": "https://code402.dev/v1/tools/ean13-check/call",
+      "method": "POST",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": { "ean": { "type": "string", "description": "13-digit EAN" } },
+            "required": ["ean"]
+          },
+          "idempotency_key": { "type": "string" }
+        },
+        "required": ["input"]
+      },
+      "price": { "amount": "2000", "decimals": 6, "asset": "USDC" },
+      "rate_limit": { "requests_per_minute": 600 }
+    },
+    {
+      "name": "gstin-check",
+      "description": "Validates an Indian Goods and Services Tax Identification Number: 15-character structure, state code 01-38, embedded PAN pattern, and the GSTN base-36 checksum. Returns the canonical GSTIN. Use before invoicing, vendor onboarding, or tax filings involving Indian entities. Deterministic; safe to cache by input.",
+      "endpoint": "https://code402.dev/v1/tools/gstin-check/call",
+      "method": "POST",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": { "gstin": { "type": "string", "description": "15-character GSTIN" } },
+            "required": ["gstin"]
+          },
+          "idempotency_key": { "type": "string" }
+        },
+        "required": ["input"]
+      },
+      "price": { "amount": "2000", "decimals": 6, "asset": "USDC" },
+      "rate_limit": { "requests_per_minute": 600 }
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@code402/sdk",
+  "version": "0.1.0",
+  "description": "Pay-per-call client for code402 tool endpoints. Handles the full 402 challenge -> EIP-3009 payment -> verified receipt loop on Base.",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": ["src", "README.md"],
+  "scripts": {
+    "test:live": "node examples/live-call.mjs"
+  },
+  "keywords": ["x402", "eip-3009", "usdc", "base", "payments", "m2m", "agent"],
+  "license": "Apache-2.0",
+  "dependencies": {
+    "viem": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

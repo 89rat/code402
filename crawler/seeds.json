@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "note": "Seed endpoints for the DIS-1 crawler. Our own endpoints are ground truth (we operate them). External entries must carry a source_url recording where the endpoint was discovered. Unpaid probes only — a 402 challenge is a public price quote.",
+  "endpoints": [
+    {
+      "id": "code402:vat-mod97-check",
+      "url": "https://code402.dev/v1/tools/vat-mod97-check/call",
+      "method": "POST",
+      "body": {"input": {"vat_number": "GB123456782"}},
+      "operator": "code402 (us)",
+      "source_url": "https://code402.dev/.well-known/x402.json"
+    },
+    {
+      "id": "code402:company-number-format",
+      "url": "https://code402.dev/v1/tools/company-number-format/call",
+      "method": "POST",
+      "body": {"input": {"company_number": "SC123456"}},
+      "operator": "code402 (us)",
+      "source_url": "https://code402.dev/.well-known/x402.json"
+    },
+    {
+      "id": "code402:context-distill",
+      "url": "https://code402.dev/v1/tools/context-distill/call",
+      "method": "POST",
+      "body": {"input": {"html": "<html><body><p>The quick brown fox jumps over the lazy dog.</p></body></html>"}},
+      "operator": "code402 (us)",
+      "source_url": "https://code402.dev/.well-known/x402.json"
+    },
+    {
+      "id": "code402:manifest",
+      "url": "https://code402.dev/.well-known/x402.json",
+      "method": "GET",
+      "operator": "code402 (us)",
+      "source_url": "self",
+      "note": "Discovery manifest quote (default_price), not a 402 challenge"
+    }
+  ]
+}

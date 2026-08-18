@@ -1,0 +1,24 @@
+{
+  "x402_version": 1,
+  "environment": "staging",
+  "asset": "USDC",
+  "network": {
+    "chain_id": 84532,
+    "name": "base-sepolia"
+  },
+  "token_address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  "authorization_type": "TransferWithAuthorization (EIP-3009)",
+  "signature_scheme": "EIP-712",
+  "eip712_domain": {
+    "name": "USDC",
+    "version": "2",
+    "chainId": 84532,
+    "verifyingContract": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+  },
+  "recipient": "RUNTIME_ENV:COMPANY_WALLET",
+  "receipt_signing_address": "0x7b885c42b47671a91b3d81694ce18d38e25e7149",
+  "decimals": 6,
+  "default_price": { "amount": "5000", "per": "call" },
+  "challenge_ttl_seconds": 300,
+  "notes": "Staging runs on Base Sepolia test USDC (no real value). Production will run on Base mainnet (chain 8453). The 402 challenge body is always authoritative for recipient, amount, chain, and nonce. Do not hardcode."
+}
