@@ -79,7 +79,7 @@ const audiences = [
     title: 'Sell any API to AI agents',
     body: 'Register your wallet, list your endpoint. Every x402-capable agent on earth can pay you per call — USDC straight to your wallet. We add discovery, receipts, reputation, invoices.',
     cta: 'Start selling →',
-    href: 'https://gateway.code402.dev/v1/sellers',
+    href: 'https://atlas.code402.dev/sellers/claim',
     code: `curl -X POST gateway.code402.dev/v1/sellers
   { "id": "you", "wallet": "0x…",
     "name": "Your API" }`,
@@ -152,7 +152,7 @@ export default function Home() {
             fiat and prepaid already specified.
           </p>
           <div className="mt-8 flex flex-wrap gap-4">
-            <a href="https://gateway.code402.dev/v1/sellers" className="rounded-md bg-[#06B6D4] px-5 py-2.5 text-sm font-semibold text-[#09090B] hover:bg-[#22d3ee] transition-colors">
+            <a href="https://atlas.code402.dev/sellers/claim" className="rounded-md bg-[#06B6D4] px-5 py-2.5 text-sm font-semibold text-[#09090B] hover:bg-[#22d3ee] transition-colors">
               Sell your API →
             </a>
             <a href="https://atlas.code402.dev" className="rounded-md border border-[#27272A] px-5 py-2.5 font-mono text-sm text-[#A1A1AA] hover:border-[#06B6D4] hover:text-[#FAFAFA] transition-colors">
