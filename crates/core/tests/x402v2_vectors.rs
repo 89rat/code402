@@ -95,8 +95,10 @@ fn base_payload() -> PaymentPayload {
     serde_json::from_str(&raw).expect("vector")
 }
 
+const ROUTE: &str = "https://api.example.com/premium-data";
+
 fn gate_ctx<'a>(expected: &'a PaymentRequirements, now: u64) -> StructuralContext<'a> {
-    StructuralContext { expected, route_url: None, now_unix: now }
+    StructuralContext { expected, route_url: ROUTE, now_unix: now }
 }
 
 #[test]
@@ -187,7 +189,7 @@ fn gate_passes_6492_envelopes_rejects_short() {
     let now = 1_740_672_100;
     let inner = pp.payload.signature.clone();
     let inner = inner.strip_prefix("0x").unwrap_or(&inner);
-    pp.payload.signature = format!("{inner}6492649264926492649264926492649264926492649264926492649264926492");
+    pp.payload.signature = format!("0x{inner}6492649264926492649264926492649264926492649264926492649264926492");
     assert!(
         structural_gate(&pp, &gate_ctx(&pp.accepted, now)).is_ok(),
         "6492-style long envelope must pass through to facilitator"
@@ -214,7 +216,7 @@ fn gate_rejects_resource_url_mismatch() {
     let now = 1_740_672_100;
     let ctx = StructuralContext {
         expected: &pp.accepted,
-        route_url: Some("https://api.example.com/other-route"),
+        route_url: "https://api.example.com/other-route",
         now_unix: now,
     };
     assert!(matches!(
@@ -290,6 +292,68 @@ fn issuance_requires_reserved_keys() {
 // Offline SPEC-VERSION drift detection (Stage-0 audit nice-to-have, adopted)
 // ---------------------------------------------------------------------------
 
+
+#[test]
+fn gate_rejects_future_valid_after_and_bad_from_and_bare_hex() {
+    let now = 1_740_672_100;
+    // validAfter in the future: not-yet-valid -> reject (no facilitator burn)
+    let mut pp = base_payload();
+    pp.payload.authorization.valid_after = "1740672200".to_string();
+    assert!(matches!(
+        structural_gate(&pp, &gate_ctx(&pp.accepted, now)),
+        Err(X402Error::ValidBeforeMargin(_, _))
+    ));
+    // invalid from address never reaches the facilitator
+    let mut pp2 = base_payload();
+    pp2.payload.authorization.from = "0xnothex".to_string();
+    assert!(matches!(
+        structural_gate(&pp2, &gate_ctx(&pp2.accepted, now)),
+        Err(X402Error::BadAddress(_))
+    ));
+    // bare-hex nonce (no 0x) rejected
+    let mut pp3 = base_payload();
+    pp3.payload.authorization.nonce =
+        pp3.payload.authorization.nonce.trim_start_matches("0x").to_string();
+    assert!(matches!(
+        structural_gate(&pp3, &gate_ctx(&pp3.accepted, now)),
+        Err(X402Error::BadNonce(_))
+    ));
+    // bare-hex signature rejected
+    let mut pp4 = base_payload();
+    pp4.payload.signature =
+        pp4.payload.signature.trim_start_matches("0x").to_string();
+    assert!(matches!(
+        structural_gate(&pp4, &gate_ctx(&pp4.accepted, now)),
+        Err(X402Error::BadSignature(_))
+    ));
+}
+
+#[test]
+fn settle_response_rejects_error_reason_on_success_and_bad_payer() {
+    let raw = read_vec("settle-response.json");
+    let mut sr: SettleResponse = serde_json::from_str(&raw).expect("vector");
+    sr.error_reason = Some("odd".to_string()); // success=true with errorReason
+    assert!(sr.validate().is_err());
+    let mut sr2: SettleResponse = serde_json::from_str(&raw).expect("vector");
+    sr2.payer = Some("0xzz".to_string());
+    assert!(sr2.validate().is_err());
+    let mut sr3: SettleResponse = serde_json::from_str(&raw).expect("vector");
+    sr3.amount = Some("1.5".to_string()); // non-decimal amount string
+    assert!(sr3.validate().is_err());
+}
+
+#[test]
+fn spec_validation_accepts_fiat_asset_and_role_payto() {
+    // §5.1.2 genericity: ISO 4217 asset + role-constant payTo are spec-legal
+    // (validate_spec must NOT EVM-parse), while OUR issuance rejects them.
+    let raw = read_vec("payment-required.json");
+    let mut pr: PaymentRequired = serde_json::from_str(&raw).expect("vector");
+    pr.accepts[0].asset = "USD".to_string();
+    pr.accepts[0].pay_to = "merchant".to_string();
+    assert!(pr.validate().is_ok(), "spec-level accepts fiat/role constants");
+    assert!(pr.accepts[0].validate_issued().is_err(), "issuance requires EVM");
+}
+
 #[test]
 fn spec_version_hashes_match_vendored_files() {
     use sha2::{Digest, Sha256};
@@ -308,4 +372,19 @@ fn spec_version_hashes_match_vendored_files() {
         }
     }
     assert_eq!(checked, 5, "expected 5 pinned spec files");
+    // Hole A closed: a NEW unpinned file under specs/x402/ must fail loudly
+    let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+        .expect("spec dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n != "SPEC-VERSION")
+        .collect();
+    on_disk.sort();
+    let mut pinned: Vec<String> = sv
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("sha256_"))
+        .filter_map(|l| l.split_once('=').map(|(k, _)| k.trim().to_string()))
+        .collect();
+    pinned.sort();
+    assert_eq!(on_disk, pinned, "specs/x402 contains unpinned files");
 }
