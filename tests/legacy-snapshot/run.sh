@@ -67,8 +67,19 @@ if [ -f "$(dirname "$0")/semantic-voucher.txt" ]; then
     -H 'content-type: application/json' \
     -H "X-PAYMENT: $(cat "$(dirname "$0")/semantic-voucher.txt")" \
     -d '{"input":{"vat_number":"GB123456789"}}'
+  # paid-200: requires .dev.vars COMPANY_WALLET = 0x3bca... (the address
+  # paytest signs to). Legacy flow is verify-local -> serve; nothing hits the
+  # chain (the G1 hole), so this fixture needs no funds.
+  snap paid_200 POST /v1/tools/vat-mod97-check/call \
+    -H 'content-type: application/json' \
+    -H "X-PAYMENT: $(cat "$(dirname "$0")/semantic-voucher.txt")" \
+    -d '{"input":{"vat_number":"GB123456789"},"idempotency_key":"snapshot-paid-1"}'
+  # idempotent replay: same key, no payment header needed (lookup precedes auth)
+  snap idempotent_replay POST /v1/tools/vat-mod97-check/call \
+    -H 'content-type: application/json' \
+    -d '{"input":{"vat_number":"GB123456789"},"idempotency_key":"snapshot-paid-1"}'
 else
-  echo "skip semantic_voucher (no semantic-voucher.txt — see README)"
+  echo "skip semantic/paid fixtures (no semantic-voucher.txt — see README)"
 fi
 
 echo "fixtures written to $OUT"

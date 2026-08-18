@@ -44,7 +44,7 @@ CREATE TABLE settlements(
   requirement_mac   TEXT,                            -- HMAC stamped requirement (G6)
   payment_payload   TEXT NOT NULL,                   -- full inbound PaymentPayload JSON (G3 crash recovery)
   facilitator_req_id TEXT,
-  transaction       TEXT,                            -- SettleResponse.transaction (required once settled/settlement_pending)
+  tx_hash          TEXT,                            -- wire: SettleResponse.transaction (required once settled/settlement_pending)
   settle_network    TEXT,                            -- SettleResponse.network
   response_body     TEXT,                            -- persisted tool response (G2b replay; NULL if non_replayable)
   response_headers  TEXT,                            -- JSON; includes original PAYMENT-RESPONSE

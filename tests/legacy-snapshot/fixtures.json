@@ -83,6 +83,17 @@
     ],
     "status": 401
   },
+  "idempotent_replay": {
+    "body": {
+      "idempotent_replay": true,
+      "receipt_ref": "receipts/req-1787086140295.json"
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 200 OK"
+    ],
+    "status": 200
+  },
   "llms_txt": {
     "body": "# code402\n\n> Pay-per-call deterministic tools for autonomous agents, settled via x402\n> (HTTP 402) in USDC. Every paid call returns a signed secp256k1 receipt binding\n> input hash, output hash, tool version, and timestamp \u2014 third-party verifiable.\n\nOPERATOR: code402.dev is operated by JUANA LIMITED, Company No. 14043409,\nregistered in England & Wales. Registered office: Unit 7, Edison Building,\nCoventry, CV1 4JA, United Kingdom. Security contact: security@code402.dev.\n\nENVIRONMENT: production. Endpoint https://code402.dev \u2014 Base mainnet\n(chain 8453), real USDC. Staging for integration testing:\nhttps://code402-edge.akrivis.workers.dev \u2014 Base Sepolia testnet\n(chain 84532), test USDC. The 402 challenge body is always authoritative\nfor recipient, amount, chain, and nonce.\n\n## How to call (agent quickstart)\n\n- No accounts, no API keys. Payment is the credential.\n- POST /v1/tools/{tool}/call unpaid \u2192 HTTP 402 challenge with price, recipient,\n  nonce, expiry.\n- Sign an EIP-3009 TransferWithAuthorization (EIP-712 typed data) for the\n  challenge amount, retry the identical request with header\n  X-PAYMENT: {\"auth\":{...},\"signature\":[...65 bytes]} \u2192 HTTP 200.\n- Response headers carry X-Schema-Version. Response schemas are frozen per\n  version; breaking changes only ever ship under a new schema version.\n- Idempotency: pass idempotency_key; a repeated key returns\n  {idempotent_replay:true, receipt_ref} and is never double-charged.\n\n## Tools (all strictly deterministic: identical input \u2192 byte-identical output)\n\n- vat-mod97-check \u2014 Validate a UK VAT registration number using the HMRC\n  modulus-97 checksum (standard and alternative variants). Use when an agent\n  must verify a counterparty VAT identifier before invoicing, onboarding, or\n  tax treatment decisions. Input: {\"input\":{\"vat_number\":\"GB...\"}}.\n  Output: {valid:boolean, canonical:string}.\n\n- company-number-format \u2014 Structural validation of a UK Companies House\n  company registration number (8 characters; all digits or lette",
     "headers": [
@@ -566,6 +577,32 @@
       "X-Schema-Version: 1.0"
     ],
     "status": 400
+  },
+  "paid_200": {
+    "body": {
+      "output": {
+        "reason": "modulus-97 checksum failed (standard and alternative variants)",
+        "valid": false
+      },
+      "receipt": {
+        "commitment": "ec0aaeb43fdb83fb6c9fc76a291fcfe7e2920da84227da9ac34918ae973b6488",
+        "receipt": {
+          "input_hash": "0xfbe40a79b794ca88e10fcd29e9ced7f5663965ab553d5ef4078ebabeed1effde",
+          "output_hash": "0xf9c7940501637a6dfdf226d2dcde0042e187297d3b4081b15d2fb77189e201bc",
+          "request_id": "req-1787086140295",
+          "timestamp_unix": 1787086140,
+          "tool": "vat-mod97-check",
+          "tool_version": "1.0.0"
+        },
+        "signature": "0x53256aeaa97862d41693fb2d32395de0b3b94a9fef04b1c3e6c650c8cd598f4e508616bccac04fbf50b211bdbc9eb6deac988a365d2c814b1735ee856f020ffa00"
+      }
+    },
+    "headers": [
+      "Content-Type: application/json",
+      "HTTP/1.1 200 OK",
+      "X-Schema-Version: 1.0"
+    ],
+    "status": 200
   },
   "semantic_voucher_wrong_recipient": {
     "body": {
