@@ -113,11 +113,9 @@ fn domain_divergence_is_real() {
 #[test]
 fn expiry_boundary_is_exact() {
     // validBefore == now + SETTLE_MARGIN_SECONDS passes; one second less fails
-    use m2m_core::payment::x402v2::{ResourceInfo, PaymentRequired, Extensions};
     let fixtures = load_all();
     let f = fixtures.iter().find(|f| f.name.starts_with("sepolia_usdc_pass")).expect("base fixture");
     let mut payload = payload_from(f);
-    let now = 1_740_672_200u64;
     let margin = m2m_core::payment::x402v2::SETTLE_MARGIN_SECONDS;
     // well inside window first (validity 1740672000..=1740672400)
     payload.payload.authorization.valid_before = "1740672400".to_string();
@@ -129,5 +127,31 @@ fn expiry_boundary_is_exact() {
         expected: &f.requirement, route_url: "https://api.example.com/premium-data", now_unix: 1740672400 - margin + 1,
     };
     assert!(m2m_core::payment::x402v2::structural_gate(&payload, &ctx_bad).is_err(), "margin-1 fails");
-    let _ = (ResourceInfo { url: String::new(), description: None, mime_type: None, service_name: None, tags: None, icon_url: None }, PaymentRequired { x402_version: 2, error: None, resource: ResourceInfo { url: String::new(), description: None, mime_type: None, service_name: None, tags: None, icon_url: None }, accepts: vec![], extensions: None }, Extensions::new());
+}
+
+#[test]
+fn required_fixture_classes_present() {
+    // DeepSeek stage-2: presence of fixture CLASSES must be asserted, not
+    // just count — deleting/renaming a class fixture must fail the suite.
+    const REQUIRED: &[(&str, &str)] = &[
+        ("sepolia_usdc_pass", "domain-binding pass"),
+        ("base_usdcoin_pass", "domain divergence pass"),
+        ("v_27form", "v normalization 27/28"),
+        ("v_0form", "v normalization 0/1"),
+        ("wrong_chain", "wrong-chain reject"),
+        ("wrong_token", "wrong-token reject"),
+        ("wrong_signer", "recovers-to-from reject"),
+        ("high_s_malleable", "EIP-2 low-s reject"),
+        ("garbage_sig", "garbage reject"),
+        ("envelope_6492", "6492 pass-through"),
+        ("long_non_magic", "long non-magic reject"),
+        ("invalid_v", "invalid recovery id reject"),
+    ];
+    let names: Vec<String> = load_all().into_iter().map(|f| f.name).collect();
+    for (prefix, class) in REQUIRED {
+        assert!(
+            names.iter().any(|n| n.starts_with(prefix)),
+            "required fixture class missing: {class} ({prefix}*)"
+        );
+    }
 }

@@ -172,6 +172,21 @@ fixtures.push(await base_case('sepolia_usdc_pass', 'canonical EOA pass, v as emi
   fixtures.push(c);
 }
 
+// 11. long non-magic hex: NOT a 6492 envelope -> local reject (quota guard)
+{
+  const c = await base_case('long_non_magic', '>65B hex without the EIP-6492 magic suffix must be locally rejected');
+  c.signature = '0x' + 'ab'.repeat(100); // 100 bytes, no magic
+  c.expected = 'local_reject';
+  fixtures.push(c);
+}
+// 12. invalid v byte (valid r/s shape, v=2) -> local reject
+{
+  const c = await base_case('invalid_v', 'recovery id outside {0,1,27,28} must be rejected');
+  c.signature = withV(c.signature, 2);
+  c.expected = 'local_reject';
+  fixtures.push(c);
+}
+
 mkdirSync(OUT, { recursive: true });
 for (const f of fixtures) {
   writeFileSync(join(OUT, f.name + '.json'), JSON.stringify(f, null, 2));

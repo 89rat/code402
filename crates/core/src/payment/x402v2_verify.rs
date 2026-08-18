@@ -86,6 +86,14 @@ fn to_twa(auth: &Authorization) -> Result<TransferWithAuthorization, X402Error> 
     })
 }
 
+/// EIP-6492 magic: 32 bytes of `0x6492` repeated, terminating the envelope.
+pub const MAGIC_6492: &str = "6492649264926492649264926492649264926492649264926492649264926492";
+
+fn has_6492_magic(body: &str) -> bool {
+    // minimal envelope is exactly sig(65B) + magic(32B); longer wraps exist
+    body.len() >= MAGIC_6492.len() + EOA_SIG_HEX && body.ends_with(MAGIC_6492)
+}
+
 fn hex_decode(s: &str, expect_bytes: usize) -> Result<Vec<u8>, X402Error> {
     let body = s.strip_prefix("0x").ok_or(X402Error::BadSignature(0))?;
     if body.len() != expect_bytes * 2 || !body.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -111,14 +119,30 @@ pub fn prefilter(payload: &PaymentPayload, req: &PaymentRequirements) -> VerifyO
 }
 
 fn run(payload: &PaymentPayload, req: &PaymentRequirements) -> Result<VerifyOutcome, X402Error> {
+    // assetTransferMethod guard: this prefilter knows ONLY eip3009 hashing.
+    // Anything else (permit2/erc7710 — out of scope per decision 4, but a
+    // client could still echo one) passes through to the facilitator.
+    let atm = req
+        .extra
+        .as_ref()
+        .and_then(|e| e.get("assetTransferMethod"))
+        .and_then(|v| v.as_str());
+    if atm != Some("eip3009") {
+        return Ok(VerifyOutcome::PassThrough);
+    }
     let sig_str = &payload.payload.signature;
     let body = sig_str.strip_prefix("0x").ok_or(X402Error::BadSignature(0))?;
     if !body.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(X402Error::BadSignature(sig_str.len()));
     }
-    // 6492 envelope classification: strictly longer than the EOA form
+    // 6492 envelope classification: strictly longer than the EOA form AND
+    // ending in the 32-byte EIP-6492 magic suffix. Long non-magic hex is
+    // garbage, not an envelope — reject locally (quota guard).
     if body.len() > EOA_SIG_HEX {
-        return Ok(VerifyOutcome::PassThrough);
+        if has_6492_magic(body) {
+            return Ok(VerifyOutcome::PassThrough);
+        }
+        return Err(X402Error::BadSignature(sig_str.len()));
     }
     if body.len() != EOA_SIG_HEX {
         return Err(X402Error::BadSignature(sig_str.len()));
@@ -145,10 +169,9 @@ fn run(payload: &PaymentPayload, req: &PaymentRequirements) -> Result<VerifyOutc
             } else {
                 // recovered to a different address: wrong key, wrong domain
                 // (chain/token/name), or forged `from` — all die here.
-                Err(X402Error::BadAddress(format!(
-                    "signer mismatch: recovered {recovered:?} != declared {:?}",
-                    twa.from
-                )))
+                // §9 semantics: wrong-key/wrong-domain/forged-from is a
+                // SIGNATURE failure, not a payload-shape failure
+                Err(X402Error::BadSignature(EOA_SIG_LEN))
             }
         }
         Err(_) => Err(X402Error::BadSignature(EOA_SIG_LEN)),

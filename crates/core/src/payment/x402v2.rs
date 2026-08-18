@@ -68,6 +68,10 @@ pub enum X402Error {
     ReservedExtraKey(&'static str),
     #[error("validBefore {0} is not at least now+{SETTLE_MARGIN_SECONDS}s ({1})")]
     ValidBeforeMargin(u64, u64),
+    #[error("validAfter {0} is in the future (now {1}) — not yet valid")]
+    ValidAfterFuture(u64, u64),
+    #[error("recipient {0} is not the required payTo")]
+    RecipientMismatch(String),
     #[error("authorization value {0} != required amount {1} (exact scheme)")]
     ExactAmountMismatch(String, String),
     #[error("payload resource url {0:?} does not match the called route")]
@@ -562,6 +566,16 @@ pub fn structural_gate(p: &PaymentPayload, ctx: &StructuralContext) -> Result<()
     if sig.len() < 130 || sig.len() % 2 != 0 || !sig.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(X402Error::BadSignature(p.payload.signature.len()));
     }
+    // pass-through classification: >65-byte signatures must be EIP-6492
+    // envelopes (32-byte magic suffix); long non-magic hex is garbage
+    if sig.len() > 130 && !sig.ends_with(crate::payment::x402v2_verify::MAGIC_6492) {
+        return Err(X402Error::BadSignature(p.payload.signature.len()));
+    }
+    // ceiling: even 6492 envelopes are ~100-200 bytes of hex; anything
+    // approaching the header cap is abuse, not an envelope
+    if sig.len() > 2048 {
+        return Err(X402Error::BadSignature(p.payload.signature.len()));
+    }
     // G5: settle margin — validBefore ≥ now + margin
     let vb = auth.valid_before_unix()?;
     if vb < ctx.now_unix.saturating_add(SETTLE_MARGIN_SECONDS) {
@@ -570,7 +584,7 @@ pub fn structural_gate(p: &PaymentPayload, ctx: &StructuralContext) -> Result<()
     // not-yet-valid authorizations must not burn a facilitator call
     let va = auth.valid_after_unix()?;
     if va > ctx.now_unix {
-        return Err(X402Error::ValidBeforeMargin(va, ctx.now_unix));
+        return Err(X402Error::ValidAfterFuture(va, ctx.now_unix));
     }
     // payload resource (when present) must itself be valid
     if let Some(res) = &p.resource {
@@ -580,9 +594,9 @@ pub fn structural_gate(p: &PaymentPayload, ctx: &StructuralContext) -> Result<()
     if auth.value != e.amount {
         return Err(X402Error::ExactAmountMismatch(auth.value.clone(), e.amount.clone()));
     }
-    // recipient binding
+    // recipient binding — §9: invalid_exact_evm_payload_recipient_mismatch
     if auth.to != e.pay_to {
-        return Err(X402Error::BadAddress(auth.to.clone()));
+        return Err(X402Error::RecipientMismatch(auth.to.clone()));
     }
     // G9: payload.resource.url must match the called route when present
     if let Some(res) = &p.resource {

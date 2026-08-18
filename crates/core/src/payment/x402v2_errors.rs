@@ -79,6 +79,8 @@ pub fn map_error(e: &X402Error) -> Taxonomy {
         X402Error::BadScheme(_) => Taxonomy::InvalidScheme,
         X402Error::ReservedExtraKey(_) => Taxonomy::InvalidPaymentRequirements,
         X402Error::ValidBeforeMargin(_, _) => Taxonomy::InvalidValidBefore,
+        X402Error::ValidAfterFuture(_, _) => Taxonomy::InvalidValidAfter,
+        X402Error::RecipientMismatch(_) => Taxonomy::InvalidRecipientMismatch,
         X402Error::ExactAmountMismatch(_, _) => Taxonomy::InvalidValueMismatch,
         X402Error::ResourceUrlMismatch(_) => Taxonomy::InvalidPayload,
         X402Error::BadServiceName | X402Error::BadTags | X402Error::BadIconUrl => {
@@ -118,5 +120,58 @@ mod tests {
             map_error(&X402Error::ValidBeforeMargin(0, 0)),
             Taxonomy::InvalidValidBefore
         );
+    }
+}
+
+#[cfg(test)]
+mod reachability {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// DeepSeek stage-2: every §9 taxonomy code must be REACHABLE from some
+    /// internal error, or documented facilitator-origin. Codes only a
+    /// facilitator emits (insufficient_funds, invalid_transaction_state,
+    /// unexpected_*, settlement_pending, unsupported_scheme) are exempt.
+    #[test]
+    fn every_taxonomy_code_reachable_or_facilitator_origin() {
+        let facilitator_only: HashSet<&str> = [
+            "insufficient_funds",
+            "invalid_transaction_state",
+            "unexpected_verify_error",
+            "unexpected_settle_error",
+            "settlement_pending",
+            "unsupported_scheme",
+        ].into_iter().collect();
+
+        // one internal error per taxonomy variant that we claim reachable
+        let probes: Vec<(Taxonomy, X402Error)> = vec![
+            (Taxonomy::InvalidValidAfter, X402Error::ValidAfterFuture(1, 0)),
+            (Taxonomy::InvalidValidBefore, X402Error::ValidBeforeMargin(0, 1)),
+            (Taxonomy::InvalidValueMismatch, X402Error::ExactAmountMismatch("a".into(), "b".into())),
+            (Taxonomy::InvalidSignature, X402Error::BadSignature(0)),
+            (Taxonomy::InvalidRecipientMismatch, X402Error::RecipientMismatch("0x0".into())),
+            (Taxonomy::InvalidNetwork, X402Error::BadNetwork("x".into())),
+            (Taxonomy::InvalidPayload, X402Error::InvalidJson("x".into())),
+            (Taxonomy::InvalidPaymentRequirements, X402Error::AmountNotDecimal("x".into())),
+            (Taxonomy::InvalidScheme, X402Error::BadScheme("x".into())),
+            (Taxonomy::InvalidX402Version, X402Error::WrongVersion(1)),
+        ];
+        let mut reachable: HashSet<&str> = probes.iter().map(|(t, e)| {
+            assert_eq!(map_error(e), *t, "{:?} probe maps wrong", t);
+            t.as_str()
+        }).collect();
+        reachable.extend(facilitator_only);
+        let all: HashSet<&str> = [
+            "insufficient_funds", "invalid_exact_evm_payload_authorization_valid_after",
+            "invalid_exact_evm_payload_authorization_valid_before",
+            "invalid_exact_evm_payload_authorization_value_mismatch",
+            "invalid_exact_evm_payload_signature",
+            "invalid_exact_evm_payload_recipient_mismatch", "invalid_network",
+            "invalid_payload", "invalid_payment_requirements", "invalid_scheme",
+            "unsupported_scheme", "invalid_x402_version", "invalid_transaction_state",
+            "unexpected_verify_error", "unexpected_settle_error", "settlement_pending",
+        ].into_iter().collect();
+        let missing: Vec<_> = all.difference(&reachable).collect();
+        assert!(missing.is_empty(), "unreachable+undocumented codes: {missing:?}");
     }
 }

@@ -34,3 +34,10 @@ gate opens.
    prod PENDING row on-chain; re-run traffic query).
 8. Mainnet enable = KV `ops:x402v2_network` write only (`[vars]` defaults
    stay staging); retreat = KV kill-switch, no redeploy.
+
+## Stage 3 additions (from Stage-2 audit, Kimi Q5 caveat)
+9. **G6 MAC is computed over OUR canonical serialization** (serde struct
+   order at stamp-time and verify-time), never over raw echoed header bytes
+   — `extra` key order differs between implementations (BTreeMap alphabetize
+   vs SDK insertion order; Stage-2 differential finding) and must never
+   enter any MAC or signature input.

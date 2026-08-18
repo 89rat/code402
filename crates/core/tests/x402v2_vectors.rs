@@ -301,8 +301,8 @@ fn gate_rejects_future_valid_after_and_bad_from_and_bare_hex() {
     pp.payload.authorization.valid_after = "1740672200".to_string();
     assert!(matches!(
         structural_gate(&pp, &gate_ctx(&pp.accepted, now)),
-        Err(X402Error::ValidBeforeMargin(_, _))
-    ));
+        Err(X402Error::ValidAfterFuture(_, _))
+    ), "not-yet-valid must be the dedicated ValidAfterFuture variant");
     // invalid from address never reaches the facilitator
     let mut pp2 = base_payload();
     pp2.payload.authorization.from = "0xnothex".to_string();

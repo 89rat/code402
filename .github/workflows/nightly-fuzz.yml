@@ -1,0 +1,28 @@
+name: nightly-differential-fuzz
+on:
+  schedule:
+    - cron: "0 3 * * *"  # nightly
+  workflow_dispatch:
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Verify SDK pin matches SPEC-VERSION
+        run: |
+          PIN=$(python3 -c "print(open('specs/x402/SPEC-VERSION').read().split('ts_sdk_ver')[1].split('=')[1].split()[0].strip())")
+          echo "SPEC-VERSION pins @x402/fetch@$PIN"
+          grep -q "\"@x402/fetch\": \"$PIN\"" tests/vectors/gen/package.json \
+            || { echo "DRIFT: package.json does not match SPEC-VERSION pin"; exit 1; }
+      - run: npm ci --prefix tests/vectors/gen
+      - run: cargo test -p m2m-core
+      - run: bash tests/fuzz/run.sh 1000
+      - name: Reverse-direction vectors (Rust signs, viem verifies)
+        run: |
+          cargo run -p m2m-core --example gen_rust_vectors -- /tmp/rust-vec-corpus
+          node tests/vectors/gen/verify-rust-vectors.mjs /tmp/rust-vec-corpus
+      - name: Malformed-input fuzz (no panics)
+        run: cargo test -p m2m-core --test x402v2_vectors
