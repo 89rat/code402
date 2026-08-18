@@ -29,7 +29,7 @@ pub const MAX_HEADER_B64_BYTES: usize = 24_000;
 /// Settle-time safety margin: validBefore must exceed now by at least this
 /// much when checked pre-settle (G5) — Base settles ~2s; retries can stretch.
 pub const SETTLE_MARGIN_SECONDS: u64 = 30;
-pub const X402_VERSION: u8 = 2;
+pub const X402_VERSION: u64 = 2;
 
 // ---------------------------------------------------------------------------
 // Errors — taxonomy maps to spec §9 strings in a later layer; these are the
@@ -45,7 +45,7 @@ pub enum X402Error {
     #[error("payload is not valid JSON: {0}")]
     InvalidJson(String),
     #[error("x402Version must be 2, got {0}")]
-    WrongVersion(u8),
+    WrongVersion(u64),
     #[error("missing required field: {0}")]
     MissingField(&'static str),
     #[error("amount must be a decimal digit string, got {0:?}")]
@@ -176,8 +176,10 @@ impl PaymentRequirements {
             .map_err(|_| X402Error::BadAddress(self.pay_to.clone()))
     }
 
-    /// Spec-level structural validation (no reserved-key enforcement —
-    /// §6.1 keys are optional with mechanism defaults).
+    /// Spec-level structural validation for the exact/EVM mechanism. NOTE:
+    /// this is EVM-scoped, not spec-generic — §5.1.2 also allows ISO 4217
+    /// fiat `asset` and role-constant `payTo`, which we deliberately reject
+    /// (code402 settles EVM USDC only).
     pub fn validate_spec(&self) -> Result<(), X402Error> {
         if self.scheme != "exact" {
             return Err(X402Error::BadScheme(self.scheme.clone()));
@@ -191,10 +193,13 @@ impl PaymentRequirements {
         Ok(())
     }
 
-    /// OUR issuance rules (§6.1 reserved keys declared explicitly; the echo
-    /// check compares the client's copy field-by-field against this).
+    /// OUR issuance rules (§6.1 reserved keys + scheme-required domain
+    /// parameters declared explicitly).
     pub fn validate_issued(&self) -> Result<(), X402Error> {
         self.validate_spec()?;
+        // scheme_exact_evm.md:71-73 — for eip3009, extra.name/version are
+        // REQUIRED (EIP-712 domain of the token contract; a client cannot
+        // construct a valid signature without them). Blocks Stage 2 if absent.
         // §6.1 reserved keys — we always declare both (G9 amendment).
         let extra = self.extra.as_ref().ok_or(X402Error::ReservedExtraKey("extra"))?;
         let get = |k: &'static str| -> Result<&str, X402Error> {
@@ -209,6 +214,9 @@ impl PaymentRequirements {
         if get("paymentFlow")? != "upfront" {
             return Err(X402Error::ReservedExtraKey("paymentFlow"));
         }
+        if get("name")?.is_empty() || get("version")?.is_empty() {
+            return Err(X402Error::ReservedExtraKey("name/version (EIP-712 domain)"));
+        }
         Ok(())
     }
 }
@@ -218,7 +226,7 @@ impl PaymentRequirements {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PaymentRequired {
     #[serde(rename = "x402Version")]
-    pub x402_version: u8,
+    pub x402_version: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub resource: ResourceInfo,
@@ -240,7 +248,9 @@ impl PaymentRequired {
         if self.accepts.is_empty() {
             return Err(X402Error::MissingField("accepts"));
         }
-        self.accepts[0].validate_spec()?;
+        for a in &self.accepts {
+            a.validate_spec()?;
+        }
         Ok(())
     }
 
@@ -324,13 +334,37 @@ pub struct ExactEvmPayload {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PaymentPayload {
     #[serde(rename = "x402Version")]
-    pub x402_version: u8,
+    pub x402_version: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource: Option<ResourceInfo>,
     pub accepted: PaymentRequirements,
     pub payload: ExactEvmPayload,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extensions: Option<Extensions>,
+}
+
+// ---------------------------------------------------------------------------
+// §7 Facilitator request envelope — POST /v2/x402/verify and /settle body.
+// The resource server forwards OUR issued requirement (never the client's
+// echo — launch-checklist dependency, see reviews/launch-checklist.md).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FacilitatorRequest {
+    #[serde(rename = "x402Version")]
+    pub x402_version: u64,
+    pub payment_payload: PaymentPayload,
+    pub payment_requirements: PaymentRequirements,
+}
+
+impl FacilitatorRequest {
+    pub fn new(
+        payload: PaymentPayload,
+        requirements: PaymentRequirements,
+    ) -> Result<Self, X402Error> {
+        requirements.validate_spec()?;
+        Ok(Self { x402_version: X402_VERSION as u64, payment_payload: payload, payment_requirements: requirements })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +517,11 @@ pub fn structural_gate(p: &PaymentPayload, ctx: &StructuralContext) -> Result<()
     let vb = auth.valid_before_unix()?;
     if vb < ctx.now_unix.saturating_add(SETTLE_MARGIN_SECONDS) {
         return Err(X402Error::ValidBeforeMargin(vb, ctx.now_unix));
+    }
+    // not-yet-valid authorizations must not burn a facilitator call
+    let va = auth.valid_after_unix()?;
+    if va > ctx.now_unix {
+        return Err(X402Error::ValidBeforeMargin(va, ctx.now_unix));
     }
     // exact means exact: value == amount (spec §exact; fixes legacy >=)
     if auth.value != e.amount {

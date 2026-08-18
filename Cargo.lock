@@ -1471,10 +1471,12 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
+ "base64",
  "hex",
  "k256",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 1.0.69",
 ]
 

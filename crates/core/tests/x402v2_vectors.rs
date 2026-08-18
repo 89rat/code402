@@ -13,14 +13,10 @@ fn vectors_dir() -> std::path::PathBuf {
 }
 
 fn read_vec(name: &str) -> String {
-    let p = vectors_dir().join("../../tests/vectors").join(name);
-    // tests/vectors lives at crates/core/tests/vectors
-    std::fs::read_to_string(p).unwrap_or_else(|_| {
-        std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/vectors").join(name),
-        )
-        .expect("vector file")
-    })
+    std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/vectors").join(name),
+    )
+    .expect("vector file")
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +60,10 @@ fn vector_payment_payload_roundtrips() {
     assert_eq!(re, raw.trim(), "byte-exact JSON roundtrip");
 }
 
+// NOTE: settle-response.json uses the §7.2/§5.3.2 TABLE field order
+// (success, payer, transaction, network). The §5.3.1 EXAMPLE orders payer
+// last — spec self-inconsistency; the table order is canonical for our
+// serializer. Do not "fix" this to match the example.
 #[test]
 fn vector_settle_response_roundtrips() {
     let raw = read_vec("settle-response.json");
