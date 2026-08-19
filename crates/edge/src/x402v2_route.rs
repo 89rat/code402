@@ -223,7 +223,12 @@ pub async fn handle(req: &mut Request, env: &Env, tool: &str) -> Result<Response
         .map_err(|_| Error::RustError("V2_STAMP_KEY not hex".into()))?;
     let now = Date::now().as_millis() / 1000;
     let grace = payload.accepted.max_timeout_seconds;
-    if iat > now + 60 || iat + grace < now {
+    // Entitlement TTL (24h) exceeds stamp grace (300s) BY DESIGN (G2 +
+    // RECONCILER-SPEC §3.C.1): a payment whose nonce holds a live
+    // reconciler entitlement skips the AGE gate only — the MAC still binds
+    // the echoed requirement, so tampering stays fatal.
+    let entitled = d1_entitled(env, &payload.payload.authorization.from, &payload.payload.authorization.nonce, now).await;
+    if iat > now + 60 || (iat + grace < now && !entitled) {
         return v2_err(Taxonomy::InvalidPaymentRequirements, 400, "stamped requirement outside grace window");
     }
     let canonical = canonical_requirement(&payload.accepted)?;
@@ -626,7 +631,23 @@ async fn settle_and_serve(
         }
         Ok(sr) => {
             let reason = sr.error_reason.clone().unwrap_or_else(|| "unexpected_settle_error".into());
-            if reason == "invalid_exact_evm_payload_signature" && sr.transaction.is_empty() {
+            // AMBIGUOUS MONEY class (G2d) — the nonce's chain state is NOT
+            // provably unconsumed, so NEVER a terminal failure; receipt_pending
+            // and the cron's chain read decides. Live-verified CDP shapes for
+            // an already-consumed nonce (2026-08-19 probes):
+            //   4xx {errorReason: "invalid_payload", transaction: <cdp's
+            //        doomed replay tx>, errorMessage: "authorization nonce
+            //        already submitted; transaction already on-chain"}
+            //   4xx {errorType: "settle_exact_failed_onchain"}   (earlier probe)
+            //   invalid_exact_evm_payload_signature              (volley/mock)
+            // At settle-time our structural gate has ALREADY passed, so any
+            // of these means CDP-side rejection of a well-formed payment —
+            // fail CLOSED on money: ambiguous.
+            let ambiguous = matches!(
+                reason.as_str(),
+                "invalid_exact_evm_payload_signature" | "settle_exact_failed_onchain" | "invalid_payload"
+            );
+            if ambiguous {
                 let _ = claim_do(env, &key, serde_json::json!({"cmd": "receipt_pending", "key": key})).await;
                 let _ = d1_mark(env, &auth.from, &auth.nonce, "receipt_pending", None, None).await;
                 return v2_err(Taxonomy::SettlementPending, 503, "authorization already used; reconciliation pending; retryable");
@@ -654,6 +675,21 @@ async fn settle_and_serve(
             }
         }
     }
+}
+
+/// Live reconciler entitlement? (status settled_reconciled within TTL) —
+/// gates only the stamp AGE bypass above; the claim DO remains the authority.
+async fn d1_entitled(env: &Env, payer: &str, nonce: &str, now: u64) -> bool {
+    let Ok(db) = env.d1("LEDGER") else { return false; };
+    let stmt = db.prepare(
+        "SELECT 1 FROM settlements WHERE payer=?1 AND nonce=?2 \
+         AND status='settled_reconciled' AND replay_eligible_until > ?3 LIMIT 1",
+    );
+    let bound = match stmt.bind(&[payer.into(), nonce.into(), (now as f64).into()]) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    matches!(bound.first::<serde_json::Value>(None).await, Ok(Some(_)))
 }
 
 /// Claim-time bridge (RECONCILER-SPEC amendment): the settlements row exists

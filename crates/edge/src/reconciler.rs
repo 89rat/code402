@@ -316,6 +316,7 @@ async fn d1_resolve(
     let nonce = row["nonce"].as_str().unwrap_or_default();
     let sql = format!(
         "UPDATE settlements SET status=?3, resolution=?4, resolution_tx=?5, \
+         tx_hash=COALESCE(?5, tx_hash), \
          resolved_at=CAST(strftime('%s','now') AS INTEGER), replay_eligible_until=?6, \
          settled_at=CASE WHEN ?3 LIKE 'settled%' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE settled_at END, \
          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') \
@@ -377,11 +378,16 @@ async fn redrive(env: &Env, db: &worker::D1Database, row: &serde_json::Value, no
         }
         Ok(sr)
             if !sr.success
-                && sr.transaction.is_empty()
-                && sr.error_reason.as_deref() == Some("invalid_exact_evm_payload_signature") =>
+                && matches!(
+                    sr.error_reason.as_deref(),
+                    Some("invalid_exact_evm_payload_signature")
+                        | Some("settle_exact_failed_onchain")
+                        | Some("invalid_payload")
+                ) =>
         {
-            // already-used between our read and the settle: chain will prove
-            // it next run — never blind-success (G2d)
+            // already-used between our read and the settle (live CDP shape:
+            // invalid_payload + the doomed replay tx hash): the chain will
+            // prove it next run — never blind-success (G2d)
         }
         Ok(_) => {} // other rejections: leave; expiry resolves within a window
         Err(_) => st.errors += 1,
