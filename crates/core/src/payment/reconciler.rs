@@ -130,6 +130,15 @@ pub fn decode_consumed_word(ret: &str) -> Option<bool> {
     Some(s.bytes().any(|b| b != b'0'))
 }
 
+/// RPC posts needed for the authorizationState leg (spec Amendment 2 / §6
+/// test 4): ceil(claims / chunk) batched eth_calls.
+pub fn rpc_batch_count(claims: usize, chunk: usize) -> usize {
+    if chunk == 0 {
+        return 0;
+    }
+    claims.div_ceil(chunk)
+}
+
 /// Which consuming event a log's topic0 announces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsumingLog {
@@ -309,6 +318,17 @@ mod tests {
             classify_consuming_log(&format!("0x{}", "de".repeat(32))),
             None
         );
+    }
+
+    /// Spec §6 test 4 (Amendment 2 math): 501 claims at chunk 20 -> 26 batched
+    /// posts; boundary exact multiples; degenerate chunk is safe.
+    #[test]
+    fn chunk_math_matches_amendment_2() {
+        assert_eq!(rpc_batch_count(501, 20), 26);
+        assert_eq!(rpc_batch_count(500, 20), 25);
+        assert_eq!(rpc_batch_count(1, 20), 1);
+        assert_eq!(rpc_batch_count(0, 20), 0);
+        assert_eq!(rpc_batch_count(7, 0), 0);
     }
 
     /// The failure matrix (G2d): every observed facilitator reason maps to
