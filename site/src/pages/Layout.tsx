@@ -6,6 +6,7 @@ const nav = [
   { to: '/pricing', label: 'Pricing' },
   { to: '/trust', label: 'Trust' },
   { to: '/enterprise', label: 'Enterprise' },
+  { to: '/proof', label: 'Proof' },
 ]
 
 const machineEndpoints = [
