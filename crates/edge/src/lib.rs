@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use worker::*;
 
 mod facilitator;
+mod settlement_do;
 mod x402v2_route;
 
 // ---------- deterministic hex helpers (no extra deps) ----------

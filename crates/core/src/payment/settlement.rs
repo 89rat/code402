@@ -26,7 +26,7 @@ pub enum ClaimStatus {
     ReceiptPending,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ClaimRow {
     pub status: ClaimStatus,
     pub payer: String,
@@ -228,6 +228,103 @@ impl SettlementClaimMachine {
                 Ok(ClaimTransition::Failed)
             }
             Some(row) => Err(format!("failed from {:?}", row.status)),
+            None => Err("no such claim".into()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pure step functions — the async-free core of each transition. The Durable
+// Object (edge) does: async load -> step -> async save. The machine methods
+// above compose these with ClaimStore; tests exercise both paths.
+// ---------------------------------------------------------------------------
+
+impl SettlementClaimMachine {
+    pub fn claim_step(
+        existing: Option<ClaimRow>,
+        i: &ClaimInput,
+    ) -> (Option<ClaimRow>, ClaimTransition) {
+        match existing {
+            None => (Some(Self::fresh_row(i)), ClaimTransition::Claimed),
+            Some(row) => match row.status {
+                ClaimStatus::Settled => {
+                    let body = row.response_body.clone();
+                    let b64 = row.payment_response_b64.clone();
+                    let tx = row.tx_hash.clone();
+                    match (body, b64, tx) {
+                        (Some(b), Some(h), Some(t)) => {
+                            (None, ClaimTransition::Replay { response_body: b, payment_response_b64: h, tx_hash: t })
+                        }
+                        _ => (None, ClaimTransition::Terminal),
+                    }
+                }
+                ClaimStatus::Failed | ClaimStatus::ReceiptPending => (None, ClaimTransition::Terminal),
+                ClaimStatus::Claimed | ClaimStatus::Settling => {
+                    if i.now_unix.saturating_sub(row.claimed_at) > LEASE_SECS {
+                        (Some(Self::fresh_row(i)), ClaimTransition::LeaseExpired)
+                    } else {
+                        (None, ClaimTransition::InProgress)
+                    }
+                }
+            },
+        }
+    }
+
+    pub fn begin_settle_step(
+        existing: Option<ClaimRow>,
+        now_unix: u64,
+    ) -> Result<(Option<ClaimRow>, ClaimTransition), String> {
+        match existing {
+            Some(mut row) if row.status == ClaimStatus::Claimed => {
+                row.status = ClaimStatus::Settling;
+                row.claimed_at = now_unix;
+                Ok((Some(row), ClaimTransition::Settling))
+            }
+            Some(row) => Err(format!("begin_settle from {:?}", row.status)),
+            None => Err("no such claim".into()),
+        }
+    }
+
+    pub fn settled_step(
+        existing: Option<ClaimRow>,
+        tx_hash: &str,
+        network: &str,
+        response_body: &[u8],
+        payment_response_b64: &str,
+    ) -> Result<(Option<ClaimRow>, ClaimTransition), String> {
+        match existing {
+            Some(mut row) if matches!(row.status, ClaimStatus::Settling | ClaimStatus::Claimed) => {
+                row.status = ClaimStatus::Settled;
+                row.tx_hash = Some(tx_hash.to_string());
+                row.network = Some(network.to_string());
+                if response_body.len() <= 256 * 1024 {
+                    row.response_body = Some(response_body.to_vec());
+                    row.payment_response_b64 = Some(payment_response_b64.to_string());
+                }
+                Ok((Some(row), ClaimTransition::Settled))
+            }
+            Some(row) => Err(format!("settled from {:?}", row.status)),
+            None => Err("no such claim".into()),
+        }
+    }
+
+    pub fn terminal_step(
+        existing: Option<ClaimRow>,
+        to: ClaimStatus,
+        reason: Option<&str>,
+    ) -> Result<(Option<ClaimRow>, ClaimTransition), String> {
+        let t = match to {
+            ClaimStatus::Failed => ClaimTransition::Failed,
+            ClaimStatus::ReceiptPending => ClaimTransition::ReceiptPending,
+            _ => return Err("terminal_step to non-terminal".into()),
+        };
+        match existing {
+            Some(mut row) if matches!(row.status, ClaimStatus::Settling | ClaimStatus::Claimed) => {
+                row.status = to;
+                row.failure_reason = reason.map(|r| r.to_string());
+                Ok((Some(row), t))
+            }
+            Some(row) => Err(format!("terminal_step from {:?}", row.status)),
             None => Err("no such claim".into()),
         }
     }

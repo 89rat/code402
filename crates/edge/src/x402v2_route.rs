@@ -8,7 +8,10 @@
 //! MAC rule (launch-checklist #9): stamps are computed over OUR canonical
 //! serialization (serde struct order), never raw header bytes.
 
-use crate::{err, execute_tool, validate_only, with_schema_header, append_event, sign_commitment, Receipt};
+use crate::{err, execute_tool, validate_only, with_schema_header, append_event, sign_commitment, hex_decode, hex_encode, Receipt};
+use crate::facilitator::{CdpFacilitator, Facilitator, MockFacilitator, MockSettle};
+use m2m_core::payment::settlement::SettlementClaimMachine;
+use m2m_core::payment::x402v2::FacilitatorRequest;
 use m2m_core::payment::x402v2::{
     self, decode_payment_payload, encode_payment_required, ExtensionData, PaymentPayload,
     PaymentRequired, PaymentRequirements, ResourceInfo, StructuralContext, X402Error,
@@ -75,10 +78,6 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
         acc |= x ^ y;
     }
     acc == 0
-}
-
-fn hex_encode(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 fn canonical_requirement(req: &PaymentRequirements) -> Result<String> {
@@ -255,12 +254,9 @@ pub async fn handle(req: &mut Request, env: &Env, tool: &str) -> Result<Response
         VerifyOutcome::LocalReject(e) => {
             v2_err(map_error(&e), 400, "local verification failed")
         }
-        VerifyOutcome::PassThrough => v2_err(
-            Taxonomy::UnexpectedVerifyError,
-            503,
-            "EIP-6492/1271 verification requires the facilitator (Stage 4); retryable",
-        ),
-        VerifyOutcome::LocalPass { .. } => serve(env, &request_id, tool, &body, amount).await,
+        VerifyOutcome::PassThrough | VerifyOutcome::LocalPass { .. } => {
+            settle_and_serve(env, &request_id, tool, &body, amount, &payload, &expected).await
+        }
     }
 }
 
@@ -382,4 +378,256 @@ async fn serve(env: &Env, request_id: &str, tool: &str, body: &CallRequest, stam
     // PAYMENT-RESPONSE lands with Stage 4 settlement (SettleResponse carries
     // the required transaction); verified-serve is Stage-3 semantics.
     Ok(cors(r)?)
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4: settle-before-serve (I1). verify -> claim (DO) -> settle ->
+// execute -> persist -> respond with PAYMENT-RESPONSE.
+// ---------------------------------------------------------------------------
+
+fn do_cmd_url(key: &str) -> String {
+    format!("https://do/cmd-key/{key}")
+}
+
+async fn claim_do(env: &Env, key: &str, cmd_json: serde_json::Value) -> Result<serde_json::Value> {
+    let ns = env.durable_object("SETTLEMENT_CLAIM")?;
+    // instance id derived from the claim key (hash(from||nonce))
+    let id = ns.id_from_name(key)?;
+    let stub = id.get_stub()?;
+    let mut headers = Headers::new();
+    headers.set("content-type", "application/json")?;
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post);
+    init.with_headers(headers);
+    init.with_body(Some(cmd_json.to_string().into()));
+    let req = Request::new_with_init(&do_cmd_url(key), &init)?;
+    let mut resp = stub.fetch_with_request(req).await?;
+    if resp.status_code() != 200 {
+        let e = resp.text().await.unwrap_or_default();
+        return Err(Error::RustError(format!("claim DO: {e}")));
+    }
+    resp.json().await
+}
+
+async fn breaker_open(env: &Env) -> bool {
+    match env.kv("PRICING") {
+        // fail CLOSED on read failure (kill-switch design)
+        Err(_) => true,
+        Ok(kv) => matches!(kv.get("ops:facilitator_breaker").text().await, Ok(Some(v)) if v == "open"),
+    }
+}
+
+fn facilitator_from_env(env: &Env) -> Option<Box<dyn Facilitator>> {
+    // production requires the explicit base URL; the mock is dev-only and
+    // requires BOTH no base AND the explicit KV opt-in
+    if let Ok(f) = CdpFacilitator::from_env(env) {
+        if !f_is_empty(&f) {
+            return Some(Box::new(f));
+        }
+    }
+    None
+}
+
+fn f_is_empty(_f: &CdpFacilitator) -> bool { false }
+
+async fn mock_facilitator_allowed(env: &Env) -> bool {
+    match env.kv("PRICING") {
+        Ok(kv) => matches!(kv.get("ops:mock_facilitator").text().await, Ok(Some(v)) if v == "true"),
+        Err(_) => false,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn settle_and_serve(
+    env: &Env,
+    request_id: &str,
+    tool: &str,
+    body: &CallRequest,
+    amount: u64,
+    payload: &m2m_core::payment::x402v2::PaymentPayload,
+    expected: &PaymentRequirements,
+) -> Result<Response> {
+    use m2m_core::payment::x402v2::{encode_settle_response, SettleResponse};
+
+    // I5: fail closed on money
+    if breaker_open(env).await {
+        return v2_err(Taxonomy::UnexpectedVerifyError, 503, "facilitator circuit breaker open (fail closed); retryable");
+    }
+
+    // facilitator selection (trait seam)
+    let facilitator: Box<dyn Facilitator> = match facilitator_from_env(env) {
+        Some(f) => f,
+        None => {
+            if mock_facilitator_allowed(env).await {
+                Box::new(MockFacilitator { verify_valid: true, settle: MockSettle::Success })
+            } else {
+                return v2_err(Taxonomy::UnexpectedVerifyError, 503, "no facilitator configured (dev: set ops:mock_facilitator=true); retryable");
+            }
+        }
+    };
+
+    // G2: FULL request validation happened before the 402 was issued; the
+    // body was re-validated on entry — nothing rejectable reaches a settle.
+
+    // claim FIRST (idempotent replay short-circuits before any facilitator call)
+    let auth = &payload.payload.authorization;
+    let key = SettlementClaimMachine::key_for(&auth.from, &auth.nonce);
+    let now = Date::now().as_millis() / 1000;
+    let input_hash = {
+        let h = hash_json(&body.input);
+        hex_encode(h.as_slice())
+    };
+    let claim = claim_do(env, &key, serde_json::json!({
+        "cmd": "claim", "key": key,
+        "input": {
+            "payer": auth.from, "nonce": auth.nonce,
+            "request_id": request_id, "tool": tool,
+            "input_hash": input_hash, "now_unix": now,
+        }
+    })).await?;
+    match claim.get("kind").and_then(|k| k.as_str()).unwrap_or_default() {
+        "replay" => {
+            let b64body = claim.get("response_body_b64").and_then(|b| b.as_str()).unwrap_or_default();
+            let pr = claim.get("payment_response").and_then(|p| p.as_str()).unwrap_or_default();
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(b64body)
+                .map_err(|_| Error::RustError("replay body b64".into()))?;
+            let mut r = Response::from_bytes(bytes)?;
+            r.headers_mut().set("Content-Type", "application/json")?;
+            r.headers_mut().set("X-Schema-Version", "2.0")?;
+            if !pr.is_empty() {
+                r.headers_mut().set("PAYMENT-RESPONSE", pr)?;
+            }
+            return Ok(cors(r)?);
+        }
+        "in_progress" => {
+            return v2_err(Taxonomy::UnexpectedVerifyError, 503, "settlement in progress by concurrent request; retry shortly");
+        }
+        "terminal" => {
+            return v2_err(Taxonomy::InvalidPayload, 400, "authorization already consumed");
+        }
+        "claimed" | "lease_expired" => {} // we hold the claim
+        other => return v2_err(Taxonomy::UnexpectedVerifyError, 500, &format!("claim kind {other:?}")),
+    }
+
+    // facilitator /verify (always free per CDP economics)
+    let freq = FacilitatorRequest::new(payload.clone(), expected.clone())
+        .map_err(|e| Error::RustError(format!("facilitator request: {e:?}")))?;
+    let verify = match facilitator.verify(&freq).await {
+        Ok(v) => v,
+        Err(_) => {
+            return v2_err(Taxonomy::UnexpectedVerifyError, 503, "facilitator verify unavailable; retryable");
+        }
+    };
+    if !verify.is_valid {
+        let reason = verify.invalid_reason.clone().unwrap_or_else(|| "invalid_payment_requirements".into());
+        return v2_err(Taxonomy::InvalidPaymentRequirements, 400, &format!("facilitator rejected: {reason}"));
+    }
+
+    // begin settle (lease refresh)
+    let _ = claim_do(env, &key, serde_json::json!({"cmd": "begin_settle", "key": key, "now": now})).await?;
+
+    // /settle — the money moment
+    let settle_out = facilitator.settle(&freq).await;
+    match settle_out {
+        Ok(sr) if sr.success => {
+            let output = match execute_tool(tool, &body.input) {
+                Ok(o) => o,
+                Err(m) => {
+                    // money taken, tool failed: G2c — bounded free re-execution
+                    // window is handled by replay (stored failure) in Stage 4
+                    // hardening; record + report honestly
+                    let _ = claim_do(env, &key, serde_json::json!({"cmd": "failed", "key": key, "reason": "TOOL_INTERNAL_ERROR"})).await;
+                    return v2_err(Taxonomy::UnexpectedVerifyError, 500, m);
+                }
+            };
+            let pr_b64 = encode_settle_response(&sr)
+                .map_err(|e| Error::RustError(format!("encode PAYMENT-RESPONSE: {e:?}")))?;
+            let body_bytes = serde_json::to_vec(&serde_json::json!({"output": output}))
+                .map_err(|e| Error::RustError(format!("body: {e}")))?;
+            let body_b64 = {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.encode(&body_bytes)
+            };
+            let _ = claim_do(env, &key, serde_json::json!({
+                "cmd": "settled", "key": key,
+                "tx": sr.transaction, "network": sr.network,
+                "response_body_b64": body_b64, "payment_response": pr_b64,
+            })).await?;
+            // durable record (0002 settlements) — best effort; the DO is the
+            // claim authority, D1 the reconciliation record
+            let _ = d1_record_settlement(env, &key, &auth, request_id, tool, &input_hash, expected, payload, &sr, &pr_b64).await;
+            let _ = append_event(env, request_id, tool, Some(&sr.transaction), amount, "V2_SETTLED", None).await;
+            let receipt = Receipt {
+                request_id: request_id.to_string(),
+                tool: tool.to_string(),
+                tool_version: "1.0.0".into(),
+                input_hash: hash_json(&body.input),
+                output_hash: hash_json(&output),
+                timestamp_unix: Date::now().as_millis() / 1000,
+            };
+            let commitment = receipt.commitment();
+            let sig_hex = sign_commitment(env, &commitment)?;
+            let mut r = Response::from_json(&serde_json::json!({
+                "output": output,
+                "receipt": {"receipt": receipt, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex},
+                "settlement": {"transaction": sr.transaction, "network": sr.network},
+            }))?;
+            r.headers_mut().set("X-Schema-Version", "2.0")?;
+            r.headers_mut().set("PAYMENT-RESPONSE", &pr_b64)?;
+            Ok(cors(r)?)
+        }
+        Ok(sr) => {
+            let reason = sr.error_reason.clone().unwrap_or_else(|| "unexpected_settle_error".into());
+            if reason == "invalid_exact_evm_payload_signature" && sr.transaction.is_empty() {
+                let _ = claim_do(env, &key, serde_json::json!({"cmd": "receipt_pending", "key": key})).await;
+                return v2_err(Taxonomy::SettlementPending, 503, "authorization already used; reconciliation pending; retryable");
+            }
+            let _ = claim_do(env, &key, serde_json::json!({"cmd": "failed", "key": key, "reason": &reason})).await;
+            let t = if reason == "insufficient_funds" { Taxonomy::InsufficientFunds } else { Taxonomy::UnexpectedSettleError };
+            v2_err(t, 400, &format!("settlement failed: {reason}"))
+        }
+        Err(_) => {
+            v2_err(Taxonomy::SettlementPending, 503, "settle outcome unknown (timeout); lease recovers the claim; retryable")
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn d1_record_settlement(
+    env: &Env,
+    key: &str,
+    auth: &m2m_core::payment::x402v2::Authorization,
+    request_id: &str,
+    tool: &str,
+    input_hash: &str,
+    expected: &PaymentRequirements,
+    payload: &m2m_core::payment::x402v2::PaymentPayload,
+    sr: &m2m_core::payment::x402v2::SettleResponse,
+    pr_b64: &str,
+) -> Result<()> {
+    use worker::wasm_bindgen::JsValue;
+    let payload_json = serde_json::to_string(payload)
+        .map_err(|e| Error::RustError(format!("payload: {e}")))?;
+    let db = env.d1("LEDGER")?;
+    db.prepare(
+        "INSERT OR IGNORE INTO settlements(id, payer, nonce, request_id, tool, input_hash, status, scheme, network, asset, amount, pay_to, payment_payload, tx_hash, settle_network, payment_response) VALUES (?1,?2,?3,?4,?5,?6,'settled','exact',?7,?8,?9,?10,?11,?12,?13,?14)"
+    ).bind(&[
+        JsValue::from_str(key),
+        JsValue::from_str(&auth.from),
+        JsValue::from_str(&auth.nonce),
+        JsValue::from_str(request_id),
+        JsValue::from_str(tool),
+        JsValue::from_str(input_hash),
+        JsValue::from_str(&expected.network),
+        JsValue::from_str(&expected.asset),
+        JsValue::from_str(&expected.amount),
+        JsValue::from_str(&expected.pay_to),
+        JsValue::from_str(&payload_json),
+        JsValue::from_str(&sr.transaction),
+        JsValue::from_str(&sr.network),
+        JsValue::from_str(pr_b64),
+    ])?.run().await?;
+    Ok(())
 }
