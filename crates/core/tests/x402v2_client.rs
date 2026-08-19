@@ -27,6 +27,10 @@ fn policy() -> SelectionPolicy {
     SelectionPolicy {
         allowed_networks: vec!["eip155:84532".to_string()],
         allowed_assets: vec!["0x036CbD53842c5426634e7929541eC2318f3dCF7e".to_string()],
+        allowed_payees: vec![
+            "0x3bca128282a1de2f74efc16fa44a32a6f88a72ff".to_string(), // code402 wallet
+            "0x209693Bc6afc0C5328bA36FaF03C514EF312287C".to_string(), // spec-vector payee
+        ],
         max_amount: U256::from(1_000_000u64),
     }
 }
@@ -41,25 +45,48 @@ fn c1_parses_v2_header_form() {
 
 #[test]
 fn c1_parses_real_v1_body_form() {
-    // real x402 v1: JSON body, x402Version 1, accepts[] (not the bespoke
-    // code402 legacy dialect, which is intentionally not understood)
+    // REAL x402 v1 wire: maxAmountRequired (not amount), network NAMES
+    // (not CAIP-2), no reserved keys (Kimi S3 major #2 — the earlier
+    // fixture was v2-shaped and proved nothing)
     let v1_body = serde_json::json!({
         "x402Version": 1,
         "error": "payment required",
         "accepts": [{
             "scheme": "exact",
-            "network": "eip155:84532",
-            "amount": "10000",
+            "network": "base-sepolia",
+            "maxAmountRequired": "10000",
             "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
             "payTo": "0x3bca128282a1de2f74efc16fa44a32a6f88a72ff",
             "maxTimeoutSeconds": 60,
             "extra": {"name": "USDC", "version": "2"}
         }]
     });
-    let pr = parse_v1_payment_required(&v1_body.to_string()).expect("v1 parse");
+    let pr = parse_v1_payment_required(&v1_body.to_string()).expect("real v1 must parse");
+    // v1 name -> CAIP-2 mapping
+    assert_eq!(pr.accepts[0].network, "eip155:84532");
     assert_eq!(pr.accepts[0].amount, "10000");
-    // v1 maps to internal v2 representation for a single downstream pipeline
-    assert_eq!(pr.x402_version, 2);
+    // mapped v2-shape is selectable by the SAME staging policy
+    let sel = policy().select(&pr).expect("v1-mapped requirement selectable");
+    assert_eq!(sel.asset.to_lowercase(), "0x036cbd53842c5426634e7929541ec2318f3dcf7e");
+    // unknown v1 network name survives parse but is denied at selection
+    let v1_bad = v1_body.to_string().replace("base-sepolia", "somechain");
+    let pr_bad = parse_v1_payment_required(&v1_bad).expect("parses");
+    assert!(policy().select(&pr_bad).is_err(), "unknown network denied");
+    // mainnet name maps too
+            let pr_main = parse_v1_payment_required(&v1_body.to_string().replace("base-sepolia", "base")).expect("parses");
+    assert!(pr_main.accepts[0].network == "eip155:8453");
+}
+
+#[test]
+fn c1_policy_skips_invalid_accepts_not_aborts() {
+    // Kimi S3 minor #8: a spec-invalid first accept must not kill a valid second
+    let mut pr = staging_pr();
+    let good = pr.accepts[0].clone();
+    let mut bad = good.clone();
+    bad.amount = "not-a-number".into(); // fails validate_spec
+    pr.accepts = vec![bad, good];
+    let sel = policy().select(&pr).expect("skips invalid, selects valid");
+    assert_eq!(sel.amount, "10000");
 }
 
 #[test]
@@ -187,4 +214,37 @@ fn c1_random_nonce_is_32_random_bytes() {
     let b = random_nonce();
     assert_eq!(a.len(), 32);
     assert_ne!(a, b, "nonces must not repeat");
+}
+
+#[test]
+fn selection_denies_unapproved_payee() {
+    // red team Break 2 fixture: attacker payTo with valid network/asset/amount
+    let mut pr = staging_pr();
+    pr.accepts[0].pay_to = "0x00000000000000000000000000000000000000dEAd".to_string();
+    assert!(policy().select(&pr).is_err(), "unapproved payee must be denied");
+}
+
+#[test]
+fn sign_payment_refuses_authorization_not_matching_requirement() {
+    // red team Break 3 fixture: auth value/payee diverging from the selected
+    // requirement must never be signed
+    let pr = staging_pr();
+    let req = policy().select(&pr).expect("select");
+    let sk = k256::ecdsa::SigningKey::from_slice(
+        &hex::decode("4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318").unwrap(),
+    ).unwrap();
+    // value exceeds requirement
+    let mut auth = build_authorization(&AuthorizationParams {
+        payer: "0x857b06519E91e3A54538791bDbb0E22373e36b66".parse().unwrap(),
+        pay_to: req.pay_to_addr().unwrap(),
+        value: U256::from(999_999u64),
+        nonce: [1u8; 32],
+        valid_after_unix: 0,
+        valid_before_unix: 4102444800,
+    });
+    assert!(sign_payment(req, &auth, &Signer::Eoa(sk.clone()), None).is_err());
+    // wrong payee
+    auth.value = req.amount_u256().unwrap().to_string();
+    auth.to = "0x00000000000000000000000000000000000000dEAd".into();
+    assert!(sign_payment(req, &auth, &Signer::Eoa(sk), None).is_err());
 }

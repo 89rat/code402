@@ -15,7 +15,6 @@ use m2m_core::payment::x402v2::{
 };
 use m2m_core::payment::x402v2_errors::{map_error, Taxonomy};
 use m2m_core::payment::x402v2_verify::{prefilter, VerifyOutcome};
-use m2m_core::payment::x402v2_client::encode_payment_signature;
 use m2m_core::receipt::hash_json;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -35,13 +34,34 @@ fn v2_err(t: Taxonomy, status: u16, msg: &str) -> Result<Response> {
     }))?;
     r = r.with_status(status);
     let mut r = with_schema_header(r)?;
+    let h = r.headers_mut();
+    h.set("Access-Control-Expose-Headers", EXPOSE)?;
+    h.set("Access-Control-Allow-Origin", "*")?;
+    Ok(r)
+}
+
+/// 402-class error WITH a freshly-issued PAYMENT-REQUIRED so conforming
+/// clients can retry-with-payment (http.md recovery; Kimi S3 major #3).
+async fn v2_payment_error(env: &Env, route_url: &str, tool: &str, amount: u64, t: Taxonomy, msg: &str) -> Result<Response> {
+    let mut ch = challenge(env, route_url, tool, amount).await?;
+    let body = serde_json::json!({
+        "error": {"code": t.as_str(), "message": msg, "retryable": false}
+    });
+    let mut r = Response::from_json(&body)?.with_status(402);
+    let pr = ch.headers_mut().get("PAYMENT-REQUIRED")?;
+    let mut r = with_schema_header(r)?;
+    if let Some(pr) = pr {
+        r.headers_mut().set("PAYMENT-REQUIRED", &pr)?;
+    }
     r.headers_mut().set("Access-Control-Expose-Headers", EXPOSE)?;
+    r.headers_mut().set("Access-Control-Allow-Origin", "*")?;
     Ok(r)
 }
 
 fn cors(r: Response) -> Result<Response> {
     let mut r = r;
     r.headers_mut().set("Access-Control-Expose-Headers", EXPOSE)?;
+    r.headers_mut().set("Access-Control-Allow-Origin", "*")?;
     Ok(r)
 }
 
@@ -99,7 +119,7 @@ pub async fn handle(req: &mut Request, env: &Env, tool: &str) -> Result<Response
         h.set("Access-Control-Max-Age", "86400")?;
         return Ok(r);
     }
-    if req.method() != Method::Post {
+    if req.method() != Method::Post && req.method() != Method::Options {
         return v2_err(Taxonomy::InvalidPayload, 400, "route must be POST /v2/tools/{tool}/call");
     }
     if !v2_enabled(env).await {
@@ -134,6 +154,24 @@ pub async fn handle(req: &mut Request, env: &Env, tool: &str) -> Result<Response
     if let Err(m) = validate_only(tool, &body.input) {
         return v2_err(Taxonomy::InvalidPayload, 400, m);
     }
+    // idempotency pre-check BEFORE execution (parity with /v1; the only
+    // client-side mitigation for the accepted replay-within-grace window)
+    if let Some(key) = &body.idempotency_key {
+        if let Ok(db) = env.d1("LEDGER") {
+            if let Ok(Some(row)) = db
+                .prepare("SELECT response_ref FROM idempotency WHERE idem_key = ?1")
+                .bind(&[key.clone().into()])?
+                .first::<serde_json::Value>(None)
+                .await
+            {
+                let mut r = Response::from_json(&serde_json::json!({
+                    "idempotent_replay": true, "receipt_ref": row["response_ref"],
+                }))?;
+                r.headers_mut().set("X-Schema-Version", "2.0")?;
+                return Ok(cors(r)?);
+            }
+        }
+    }
 
     // pricing from KV (route-derived truth; echo is never trusted)
     let pricing = env.kv("PRICING")?;
@@ -144,7 +182,13 @@ pub async fn handle(req: &mut Request, env: &Env, tool: &str) -> Result<Response
     };
     let price: serde_json::Value = serde_json::from_str(&price_raw)
         .map_err(|_| Error::RustError("pricing entry malformed".into()))?;
-    let amount = price["amount_minor"].as_u64().unwrap_or(5000);
+    // I5 fail-closed (red team Break 1): malformed/missing money config
+    // must NEVER default — no challenge is issued on bad pricing.
+    let amount = price
+        .get("amount_minor")
+        .and_then(|v| v.as_u64())
+        .filter(|v| *v > 0)
+        .ok_or_else(|| Error::RustError("pricing amount_minor missing/invalid".into()))?;
 
     let sig = match sig_merged {
         None => return challenge(env, &route_url, tool, amount).await,
@@ -160,21 +204,20 @@ pub async fn handle(req: &mut Request, env: &Env, tool: &str) -> Result<Response
     // G6 stamp check: the echoed extensions must carry our stamp; MAC is
     // recomputed over the ECHOED requirement's canonical form (any field
     // tamper breaks it), within the requirement's own grace window.
-    let stamp = payload
-        .extensions
-        .as_ref()
-        .and_then(|e| e.get(STAMP_EXT_ID))
-        .cloned()
-        .ok_or_else(|| Error::RustError("stamp".into()))?;
+    let bad_stamp = || v2_err(Taxonomy::InvalidPaymentRequirements, 400, "missing or malformed requirement stamp");
+    let stamp = match payload.extensions.as_ref().and_then(|e| e.get(STAMP_EXT_ID)) {
+        Some(s) => s.clone(),
+        None => return bad_stamp(),
+    };
     let info = stamp.info;
-    let mac_hex = info
-        .get("mac")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::RustError("stamp.mac".into()))?;
-    let iat = info
-        .get("iat")
-        .and_then(|v| v.as_u64())
-        .ok_or_else(|| Error::RustError("stamp.iat".into()))?;
+    let mac_hex = match info.get("mac").and_then(|v| v.as_str()) {
+        Some(m) => m.to_string(),
+        None => return bad_stamp(),
+    };
+    let iat = match info.get("iat").and_then(|v| v.as_u64()) {
+        Some(i) => i,
+        None => return bad_stamp(),
+    };
     let key_hex = env.secret("V2_STAMP_KEY")?.to_string();
     let key_bytes = crate::hex_decode(&key_hex)
         .map_err(|_| Error::RustError("V2_STAMP_KEY not hex".into()))?;
@@ -184,9 +227,12 @@ pub async fn handle(req: &mut Request, env: &Env, tool: &str) -> Result<Response
         return v2_err(Taxonomy::InvalidPaymentRequirements, 400, "stamped requirement outside grace window");
     }
     let canonical = canonical_requirement(&payload.accepted)?;
-    let expect_mac = stamp_mac(&key_bytes, &canonical, iat)?;
-    let got_mac = crate::hex_decode(mac_hex)
-        .map_err(|_| Error::RustError("stamp.mac not hex".into()))?;
+    let route_bound = format!("{canonical}|{route_url}");
+    let expect_mac = stamp_mac(&key_bytes, &route_bound, iat)?;
+    let got_mac = match crate::hex_decode(&mac_hex) {
+        Ok(m) => m,
+        Err(_) => return bad_stamp(),
+    };
     if !ct_eq(&expect_mac, &got_mac) {
         return v2_err(Taxonomy::InvalidPaymentRequirements, 400, "requirement stamp mismatch (G6)");
     }
@@ -197,31 +243,35 @@ pub async fn handle(req: &mut Request, env: &Env, tool: &str) -> Result<Response
     let ctx = StructuralContext { expected: &expected, route_url: &route_url, now_unix: now };
     if let Err(e) = x402v2::structural_gate(&payload, &ctx) {
         let t = map_error(&e);
-        let status = match t {
-            Taxonomy::InvalidSignature => 401,
-            Taxonomy::InvalidValidAfter | Taxonomy::InvalidValidBefore => 402,
-            _ => 400,
-        };
-        return v2_err(t, status, "structural gate");
+        // vendored http.md: no 401 exists; invalid payment => 400, timing
+        // failures => 402 WITH fresh PAYMENT-REQUIRED (recovery path)
+        if matches!(t, Taxonomy::InvalidValidAfter | Taxonomy::InvalidValidBefore) {
+            return v2_payment_error(env, &route_url, tool, amount, t, "structural gate: timing").await;
+        }
+        return v2_err(t, 400, "structural gate");
     }
 
     match prefilter(&payload, &expected) {
         VerifyOutcome::LocalReject(e) => {
-            let t = map_error(&e);
-            let status = if t == Taxonomy::InvalidSignature { 401 } else { 400 };
-            v2_err(t, status, "local verification failed")
+            v2_err(map_error(&e), 400, "local verification failed")
         }
         VerifyOutcome::PassThrough => v2_err(
             Taxonomy::UnexpectedVerifyError,
             503,
             "EIP-6492/1271 verification requires the facilitator (Stage 4); retryable",
         ),
-        VerifyOutcome::LocalPass { .. } => serve(env, &request_id, tool, &body).await,
+        VerifyOutcome::LocalPass { .. } => serve(env, &request_id, tool, &body, amount).await,
     }
 }
 
 async fn challenge(env: &Env, route_url: &str, tool: &str, amount_minor: u64) -> Result<Response> {
-    let chain_id: u64 = env.var("CHAIN_ID")?.to_string().parse().unwrap_or(8453);
+    // I5 fail-closed (red team Break 4): an invalid CHAIN_ID must never
+    // silently default to Base MAINNET.
+    let chain_id: u64 = env
+        .var("CHAIN_ID")?
+        .to_string()
+        .parse()
+        .map_err(|_| Error::RustError("CHAIN_ID var invalid".into()))?;
     let asset = env.var("USDC_BASE")?.to_string();
     let pay_to = env.secret("COMPANY_WALLET")?.to_string();
     let name = env.var("TOKEN_NAME")?.to_string();
@@ -243,7 +293,8 @@ async fn challenge(env: &Env, route_url: &str, tool: &str, amount_minor: u64) ->
     let key_hex = env.secret("V2_STAMP_KEY")?.to_string();
     let key_bytes = crate::hex_decode(&key_hex)
         .map_err(|_| Error::RustError("V2_STAMP_KEY not hex".into()))?;
-    let mac = stamp_mac(&key_bytes, &canonical, now)?;
+    let route_bound = format!("{canonical}|{route_url}");
+    let mac = stamp_mac(&key_bytes, &route_bound, now)?;
     let mut exts: BTreeMap<String, ExtensionData> = BTreeMap::new();
     exts.insert(
         STAMP_EXT_ID.into(),
@@ -292,7 +343,7 @@ async fn challenge(env: &Env, route_url: &str, tool: &str, amount_minor: u64) ->
     Ok(r)
 }
 
-async fn serve(env: &Env, request_id: &str, tool: &str, body: &CallRequest) -> Result<Response> {
+async fn serve(env: &Env, request_id: &str, tool: &str, body: &CallRequest, stamped_amount: u64) -> Result<Response> {
     // Stage 3: verified-serve. Stage 4 inserts facilitator /verify + /settle
     // BEFORE this point (settle-before-serve, I1). The route is KV-gated
     // dark in production until then.
@@ -300,8 +351,7 @@ async fn serve(env: &Env, request_id: &str, tool: &str, body: &CallRequest) -> R
         Ok(o) => o,
         Err(m) => return v2_err(Taxonomy::UnexpectedVerifyError, 500, m),
     };
-    let amount = 5000u64; // stamped requirement governs; recorded for telemetry
-    let _ = append_event(env, request_id, tool, None, amount, "V2_VERIFIED_SETTLE_PENDING", None).await;
+    let _ = append_event(env, request_id, tool, None, stamped_amount, "V2_VERIFIED_SETTLE_PENDING", None).await;
 
     let receipt = Receipt {
         request_id: request_id.to_string(),

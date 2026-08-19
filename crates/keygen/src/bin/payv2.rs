@@ -36,6 +36,9 @@ fn main() {
             "0x036CbD53842c5426634e7929541eC2318f3dCF7e".into(), // sepolia usdc
             "0x833589fCD6eDb6E08f4c7C32D4F71b54bdA02913".into(), // base usdc
         ],
+        allowed_payees: vec![
+            "0x3bca128282a1de2f74efc16fa44a32a6f88a72ff".into(), // staging company
+        ],
         max_amount: alloy_primitives::U256::from(1_000_000u64),
     };
     let req = select_helper(&pr, &policy).expect("select under policy");

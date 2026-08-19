@@ -81,6 +81,7 @@ pub fn map_error(e: &X402Error) -> Taxonomy {
         X402Error::ValidBeforeMargin(_, _) => Taxonomy::InvalidValidBefore,
         X402Error::ValidAfterFuture(_, _) => Taxonomy::InvalidValidAfter,
         X402Error::RecipientMismatch(_) => Taxonomy::InvalidRecipientMismatch,
+        X402Error::PolicyDenied(_) => Taxonomy::InvalidPaymentRequirements,
         X402Error::ExactAmountMismatch(_, _) => Taxonomy::InvalidValueMismatch,
         X402Error::ResourceUrlMismatch(_) => Taxonomy::InvalidPayload,
         X402Error::BadServiceName | X402Error::BadTags | X402Error::BadIconUrl => {

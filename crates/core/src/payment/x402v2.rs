@@ -72,6 +72,8 @@ pub enum X402Error {
     ValidAfterFuture(u64, u64),
     #[error("recipient {0} is not the required payTo")]
     RecipientMismatch(String),
+    #[error("client policy denied the payment: {0}")]
+    PolicyDenied(String),
     #[error("authorization value {0} != required amount {1} (exact scheme)")]
     ExactAmountMismatch(String, String),
     #[error("payload resource url {0:?} does not match the called route")]

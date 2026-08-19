@@ -32,31 +32,66 @@ pub fn parse_v2_payment_required(header_value: &str) -> Result<PaymentRequired, 
     Ok(pr)
 }
 
-/// Parse the real x402 v1 form: JSON body `{x402Version: 1, error?, accepts:[…]}`
-/// (requirements share the v2 field shape; amount is already an atomic-unit
-/// decimal string in both). The legacy bespoke code402 challenge is NOT v1
-/// and is deliberately not understood here.
+/// Parse the REAL x402 v1 form (Kimi S3 major #2): JSON body with
+/// `x402Version: 1`, `accepts[]` carrying v1 field names — `maxAmountRequired`
+/// (not `amount`), non-CAIP-2 network names ("base", "base-sepolia") — and
+/// no §6.1 reserved keys. Mapped into the v2 shape for one downstream
+/// pipeline. Unknown network names map to nothing (denied at selection).
 pub fn parse_v1_payment_required(body: &str) -> Result<PaymentRequired, X402Error> {
+    #[derive(serde::Deserialize)]
+    struct V1Requirement {
+        scheme: String,
+        network: String,
+        #[serde(rename = "maxAmountRequired")]
+        max_amount_required: String,
+        asset: String,
+        #[serde(rename = "payTo")]
+        pay_to: String,
+        #[serde(rename = "maxTimeoutSeconds", default)]
+        max_timeout_seconds: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        extra: Option<serde_json::Value>,
+    }
     #[derive(serde::Deserialize)]
     struct V1Body {
         #[serde(rename = "x402Version")]
         x402_version: u64,
         #[serde(default)]
-        #[allow(dead_code)]
         error: Option<String>,
-        accepts: Vec<PaymentRequirements>,
+        accepts: Vec<V1Requirement>,
     }
     let v1: V1Body =
         serde_json::from_str(body).map_err(|e| X402Error::InvalidJson(e.to_string()))?;
     if v1.x402_version != 1 {
-        return Err(X402Error::WrongVersion(v1.x402_version as u8 as u64));
+        return Err(X402Error::WrongVersion(v1.x402_version));
     }
     if v1.accepts.is_empty() {
         return Err(X402Error::MissingField("accepts"));
     }
-    let mut pr = PaymentRequired {
+    let map_network = |n: &str| -> Option<String> {
+        match n {
+            "base" => Some("eip155:8453".to_string()),
+            "base-sepolia" | "base-sepolia-testnet" => Some("eip155:84532".to_string()),
+            other if other.starts_with("eip155:") => Some(other.to_string()),
+            _ => None, // unknown v1 network name: preserved as-is, denied at selection
+        }
+    };
+    let accepts = v1
+        .accepts
+        .into_iter()
+        .map(|a| PaymentRequirements {
+            scheme: a.scheme,
+            network: map_network(&a.network).unwrap_or(a.network),
+            amount: a.max_amount_required, // v1 name -> v2 semantic
+            asset: a.asset,
+            pay_to: a.pay_to,
+            max_timeout_seconds: a.max_timeout_seconds.unwrap_or(60),
+            extra: a.extra,
+        })
+        .collect();
+    let pr = PaymentRequired {
         x402_version: 2,
-        error: None,
+        error: v1.error,
         resource: crate::payment::x402v2::ResourceInfo {
             url: String::new(),
             description: None,
@@ -65,12 +100,18 @@ pub fn parse_v1_payment_required(body: &str) -> Result<PaymentRequired, X402Erro
             tags: None,
             icon_url: None,
         },
-        accepts: v1.accepts,
+        accepts,
         extensions: None,
     };
-    // v1 requirements carry no §6.1 reserved keys (mechanism defaults) —
-    // spec-level validation only, not our issuance rules.
-    pr.validate()?;
+    // LENIENT validation: v1 network names we do not recognize are kept
+    // verbatim and denied later at selection (parse = shape; policy =
+    // selection). Only structural money fields must parse.
+    for a in &pr.accepts {
+        a.amount_u256()?;
+        if a.asset.is_empty() || a.pay_to.is_empty() {
+            return Err(crate::payment::x402v2::X402Error::BadAddress(a.asset.clone()));
+        }
+    }
     Ok(pr)
 }
 
@@ -84,12 +125,17 @@ pub struct SelectionPolicy {
     pub allowed_networks: Vec<String>,
     /// Token contract addresses we are willing to pay with.
     pub allowed_assets: Vec<String>,
+    /// APPROVED PAYEES (red team Break 2): a malicious 402 naming an
+    /// attacker wallet must be denied even with valid network/asset/amount.
+    pub allowed_payees: Vec<String>,
     /// Price ceiling in atomic units (per content class at C2; global here).
     pub max_amount: U256,
 }
 
 impl SelectionPolicy {
-    /// First requirement matching every predicate; deny-by-default.
+    /// First requirement matching every predicate; deny-by-default. A
+    /// spec-INVALID matching requirement is SKIPPED, not fatal (Kimi S3
+    /// minor #8) — a later accept may be perfectly good.
     pub fn select<'a>(
         &self,
         pr: &'a PaymentRequired,
@@ -101,13 +147,18 @@ impl SelectionPolicy {
             if !self.allowed_assets.iter().any(|x| x.eq_ignore_ascii_case(&a.asset)) {
                 continue;
             }
-            if a.amount_u256()? > self.max_amount {
+            if !self.allowed_payees.iter().any(|x| x.eq_ignore_ascii_case(&a.pay_to)) {
+                continue; // unapproved payee: deny (I2)
+            }
+            if a.amount_u256().unwrap_or(alloy_primitives::U256::MAX) > self.max_amount {
                 continue;
             }
-            a.validate_spec()?;
+            if a.validate_spec().is_err() {
+                continue; // skip invalid, try next accept
+            }
             return Ok(a);
         }
-        Err(X402Error::BadNetwork("no acceptable requirement under policy".into()))
+        Err(X402Error::PolicyDenied("no acceptable requirement under policy".into()))
     }
 }
 
@@ -169,6 +220,15 @@ pub fn sign_payment(
             authorization: auth.clone(),
         }),
         Signer::Eoa(sk) => {
+            // I2 (red team Break 3): the signed authorization is BOUND to the
+            // policy-selected requirement — value and payee must match exactly
+            // or nothing is signed.
+            if auth.value_u256()? != requirement.amount_u256()? {
+                return Err(X402Error::ExactAmountMismatch(auth.value.clone(), requirement.amount.clone()));
+            }
+            if auth.to_addr()? != requirement.pay_to_addr()? {
+                return Err(X402Error::RecipientMismatch(auth.to.clone()));
+            }
             let ds = crate::payment::x402v2_verify::domain_separator_from_requirement(requirement)?;
             let twa = crate::payment::x402v2_verify::authorization_to_twa(auth)?;
             let sh = crate::payment::erc3009::struct_hash(&twa);
