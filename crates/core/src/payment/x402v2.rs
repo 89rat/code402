@@ -388,7 +388,9 @@ pub struct PaymentPayload {
 pub struct FacilitatorRequest {
     #[serde(rename = "x402Version")]
     pub x402_version: u64,
+    #[serde(rename = "paymentPayload")]
     pub payment_payload: PaymentPayload,
+    #[serde(rename = "paymentRequirements")]
     pub payment_requirements: PaymentRequirements,
 }
 

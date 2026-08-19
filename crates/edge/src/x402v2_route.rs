@@ -516,8 +516,8 @@ async fn settle_and_serve(
         .map_err(|e| Error::RustError(format!("facilitator request: {e:?}")))?;
     let verify = match facilitator.verify(&freq).await {
         Ok(v) => v,
-        Err(_) => {
-            return v2_err(Taxonomy::UnexpectedVerifyError, 503, "facilitator verify unavailable; retryable");
+        Err(e) => {
+            return v2_err(Taxonomy::UnexpectedVerifyError, 503, &format!("facilitator verify error: {e:?}"));
         }
     };
     if !verify.is_valid {

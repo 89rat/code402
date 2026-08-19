@@ -19,17 +19,55 @@ pub trait Facilitator {
 
 pub struct CdpFacilitator {
     base: String,
-    api_key: String,
-    auth_header: String, // e.g. "Authorization" or "x-api-key" — set from env
+    key_id: String,
+    secret_b64: String,
 }
 
 impl CdpFacilitator {
+    /// CDP_API_KEY secret format: "<key-id>:<secret-base64>".
     pub fn from_env(env: &Env) -> Result<Self> {
-        Ok(Self {
-            base: env.var("CDP_FACILITATOR_BASE")?.to_string(),
-            api_key: env.secret("CDP_API_KEY")?.to_string(),
-            auth_header: env.var("CDP_AUTH_HEADER")?.to_string(),
-        })
+        let base = match env.var("CDP_FACILITATOR_BASE") {
+            Ok(b) if !b.to_string().is_empty() => b.to_string(),
+            _ => "https://api.cdp.coinbase.com/platform".to_string(),
+        };
+        let raw = env.secret("CDP_API_KEY")?.to_string();
+        let (key_id, secret_b64) = raw
+            .split_once(':')
+            .ok_or_else(|| Error::RustError("CDP_API_KEY must be key-id:secret-b64".into()))?;
+        Ok(Self { base, key_id: key_id.to_string(), secret_b64: secret_b64.to_string() })
+    }
+
+    /// Mint a 120s EdDSA JWT (docs.cdp.coinbase.com/api-reference/v2/
+    /// authentication.md — verified live against /supported 2026-08-19).
+    fn mint_jwt(&self, uri: &str) -> Result<String> {
+        use base64::Engine;
+        use ed25519_dalek::Signer;
+        let b64u = |b: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b);
+        let kp_raw = base64::engine::general_purpose::STANDARD
+            .decode(&self.secret_b64)
+            .map_err(|e| Error::RustError(format!("cdp secret b64: {e}")))?;
+        if kp_raw.len() != 64 {
+            return Err(Error::RustError("cdp secret must be 64 bytes (keypair)".into()));
+        }
+        let mut kp = [0u8; 64];
+        kp.copy_from_slice(&kp_raw);
+        let sk = ed25519_dalek::SigningKey::from_keypair_bytes(&kp)
+            .map_err(|e| Error::RustError(format!("cdp key: {e}")))?;
+        let now = Date::now().as_millis() / 1000;
+        // nonce: uniqueness only (the docs do not constrain its form)
+        let nonce = format!("n{now}-{}", &self.secret_b64[self.secret_b64.len().saturating_sub(8)..]);
+        let header = serde_json::json!({"alg":"EdDSA","typ":"JWT","kid":self.key_id,"nonce":nonce});
+        let claims = serde_json::json!({
+            "sub": self.key_id, "iss": "cdp", "aud": ["cdp_service"],
+            "nbf": now, "exp": now + 120, "uri": uri,
+        });
+        let signing = format!(
+            "{}.{}",
+            b64u(header.to_string().as_bytes()),
+            b64u(claims.to_string().as_bytes())
+        );
+        let sig = sk.sign(signing.as_bytes());
+        Ok(format!("{signing}.{}", b64u(&sig.to_bytes())))
     }
 
     async fn call<T: for<'de> serde::Deserialize<'de>>(
@@ -38,19 +76,27 @@ impl CdpFacilitator {
         req: &FacilitatorRequest,
     ) -> std::result::Result<T, worker::Error> {
         let url = format!("{}{}", self.base.trim_end_matches('/'), path);
+        let host = "api.cdp.coinbase.com";
+        let uri_claim = format!("POST {host}/platform{path}");
+        let jwt = self.mint_jwt(&uri_claim)?;
         let body = serde_json::to_string(req)
             .map_err(|e| Error::RustError(format!("facilitator encode: {e}")))?;
         let mut headers = Headers::new();
         headers.set("content-type", "application/json")?;
-        headers.set(&self.auth_header, &self.api_key)?;
+        headers.set("Authorization", &format!("Bearer {jwt}"))?;
         let mut init = RequestInit::new();
         init.with_method(Method::Post);
         init.with_headers(headers);
         init.with_body(Some(body.into()));
         let r = Request::new_with_init(&url, &init)?;
         let mut resp = Fetch::Request(r).send().await?;
-        if resp.status_code() >= 500 {
-            return Err(Error::RustError(format!("facilitator 5xx: {}", resp.status_code())));
+        if resp.status_code() != 200 {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(Error::RustError(format!(
+                "facilitator {}: {}",
+                resp.status_code(),
+                body.chars().take(300).collect::<String>()
+            )));
         }
         resp.json().await.map_err(|e| Error::RustError(format!("facilitator decode: {e}")))
     }
