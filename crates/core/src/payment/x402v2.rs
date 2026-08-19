@@ -594,8 +594,12 @@ pub fn structural_gate(p: &PaymentPayload, ctx: &StructuralContext) -> Result<()
     if auth.value != e.amount {
         return Err(X402Error::ExactAmountMismatch(auth.value.clone(), e.amount.clone()));
     }
-    // recipient binding — §9: invalid_exact_evm_payload_recipient_mismatch
-    if auth.to != e.pay_to {
+    // recipient binding — §9: invalid_exact_evm_payload_recipient_mismatch.
+    // SEMANTIC address compare: clients legitimately format the same address
+    // with different EIP-55 casing (mirror-test finding, Kimi stage-1 n7);
+    // parsed-address equality is the correct equivalence (fail-closed on any
+    // actual recipient change).
+    if auth.to_addr()? != e.pay_to_addr()? {
         return Err(X402Error::RecipientMismatch(auth.to.clone()));
     }
     // G9: payload.resource.url must match the called route when present

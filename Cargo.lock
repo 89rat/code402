@@ -1487,10 +1487,12 @@ dependencies = [
  "alloy-primitives",
  "async-trait",
  "getrandom 0.2.17",
+ "hmac",
  "k256",
  "m2m-core",
  "serde",
  "serde_json",
+ "sha2",
  "wasm-bindgen",
  "worker",
 ]

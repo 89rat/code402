@@ -74,7 +74,7 @@ pub fn domain_separator_from_requirement(req: &PaymentRequirements) -> Result<B2
     Ok(eip712::domain_separator(name, version, chain_id, token))
 }
 
-fn to_twa(auth: &Authorization) -> Result<TransferWithAuthorization, X402Error> {
+pub fn authorization_to_twa(auth: &Authorization) -> Result<TransferWithAuthorization, X402Error> {
     Ok(TransferWithAuthorization {
         from: auth.from_addr()?,
         to: auth.to_addr()?,
@@ -150,7 +150,7 @@ fn run(payload: &PaymentPayload, req: &PaymentRequirements) -> Result<VerifyOutc
 
     let auth = &payload.payload.authorization;
     let ds = domain_separator_from_requirement(req)?;
-    let twa = to_twa(auth)?;
+    let twa = authorization_to_twa(auth)?;
     let sh = erc3009::struct_hash(&twa);
     let digest = eip712::signing_digest(&ds, &sh);
     let sig = hex_decode(sig_str, EOA_SIG_LEN)?;
