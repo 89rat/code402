@@ -386,7 +386,7 @@ async fn serve(env: &Env, request_id: &str, tool: &str, body: &CallRequest, stam
 // ---------------------------------------------------------------------------
 
 fn do_cmd_url(key: &str) -> String {
-    format!("https://do/cmd-key/{key}")
+    "https://do/cmd".to_string()
 }
 
 async fn claim_do(env: &Env, key: &str, cmd_json: serde_json::Value) -> Result<serde_json::Value> {
