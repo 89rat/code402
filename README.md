@@ -74,6 +74,11 @@ concede — and tests adjudicate first. This caught three real production bugs t
 had shipped green (including an entitlement hole and an unreachable code path that only
 live e2e exposed). The full verdict trail is in `reviews/`.
 
+## Links
+
+Live: code402.dev · Proof: code402.dev/proof · Telemetry: code402.dev/v1/ops/stats
+Social: [github.com/code402dev](https://github.com/code402dev) · [@code402dev](https://x.com/code402dev) · [LinkedIn](https://www.linkedin.com/company/code402dev)
+
 ## License
 
 MIT. The receipts specification (XDR-1) is CC0.

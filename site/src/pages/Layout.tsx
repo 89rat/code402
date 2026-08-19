@@ -64,6 +64,11 @@ export default function Layout() {
               England &amp; Wales · Unit 7, Edison Building, Coventry, CV1 4JA,
               United Kingdom
             </p>
+            <p className="mt-4 flex flex-wrap gap-4 font-mono text-xs text-[#06B6D4]">
+              <a href="https://github.com/code402dev" className="hover:underline">github/code402dev</a>
+              <a href="https://x.com/code402dev" className="hover:underline">x/@code402dev</a>
+              <a href="https://www.linkedin.com/company/code402dev" className="hover:underline">linkedin/code402dev</a>
+            </p>
           </div>
           <div>
             <p className="mb-2 font-mono text-xs uppercase tracking-wider text-[#A1A1AA]">
