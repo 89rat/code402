@@ -122,7 +122,7 @@ const pillars = [
   {
     icon: FileCheck2,
     title: 'Cryptographic auditability',
-    body: 'Every call returns a signed receipt bound to input and output hashes. An append-only ledger with a verifiable conservation invariant. Reconciliation is a hash check, not a spreadsheet.',
+    body: 'Every call returns an XDR-1 receipt — JCS-canonical, domain-separated, bound to the payment nonce — verifiable offline by any third party. Settlement is exactly-once and reconciled hourly against chain state; paid-but-unserved callers get a cryptographic entitlement, not an apology.',
   },
 ]
 

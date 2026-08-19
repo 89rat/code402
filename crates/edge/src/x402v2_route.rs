@@ -40,6 +40,9 @@ fn v2_err(t: Taxonomy, status: u16, msg: &str) -> Result<Response> {
     let h = r.headers_mut();
     h.set("Access-Control-Expose-Headers", EXPOSE)?;
     h.set("Access-Control-Allow-Origin", "*")?;
+    // cache hygiene: payment-negotiated responses must never be stored by
+    // intermediaries (stamps are iat-fresh per issuance)
+    h.set("Cache-Control", "private, no-store")?;
     Ok(r)
 }
 
@@ -65,6 +68,7 @@ fn cors(r: Response) -> Result<Response> {
     let mut r = r;
     r.headers_mut().set("Access-Control-Expose-Headers", EXPOSE)?;
     r.headers_mut().set("Access-Control-Allow-Origin", "*")?;
+    r.headers_mut().set("Cache-Control", "private, no-store")?;
     Ok(r)
 }
 

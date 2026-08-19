@@ -470,9 +470,13 @@ async fn fetch_inner(req: Request, env: Env, _ctx: Context) -> Result<Response> 
         amount_minor: amount_minor.to_string(),
     }).await?;
 
-    // STEP 7 — 200 {output, receipt}
+    // STEP 7 — 200 {output, receipt} — paid responses are never cacheable
     Response::from_json(&serde_json::json!({"output": output, "receipt": receipt_doc}))
         .and_then(with_schema_header)
+        .and_then(|mut r| {
+            r.headers_mut().set("Cache-Control", "private, no-store")?;
+            Ok(r)
+        })
 }
 
 pub(crate) fn validate_only<'a>(tool: &str, input: &serde_json::Value) -> std::result::Result<(), &'a str> {
@@ -532,6 +536,10 @@ async fn challenge(env: &Env, request_id: &str, tool: &str, amount_minor: u64) -
     // Funnel top: every 402 is a lead. Best-effort — never fail the challenge.
     let _ = append_event_s(env, request_id, "-ch", tool, None, amount_minor, "CHALLENGED", None).await;
     Response::from_json(&body).map(|r| r.with_status(402)).and_then(with_schema_header)
+        .and_then(|mut r| {
+            r.headers_mut().set("Cache-Control", "private, no-store")?;
+            Ok(r)
+        })
 }
 
 // days since epoch -> (year, month, day), Howard Hinnant's algorithm
