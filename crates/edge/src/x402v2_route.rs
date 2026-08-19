@@ -544,7 +544,24 @@ async fn settle_and_serve(
             };
             let pr_b64 = encode_settle_response(&sr)
                 .map_err(|e| Error::RustError(format!("encode PAYMENT-RESPONSE: {e:?}")))?;
-            let body_bytes = serde_json::to_vec(&serde_json::json!({"output": output}))
+            // build the FULL response now; the exact bytes are what replay
+            // serves (G2b: identical 200s — receipt + settlement included)
+            let receipt = Receipt {
+                request_id: request_id.to_string(),
+                tool: tool.to_string(),
+                tool_version: "1.0.0".into(),
+                input_hash: hash_json(&body.input),
+                output_hash: hash_json(&output),
+                timestamp_unix: Date::now().as_millis() / 1000,
+            };
+            let commitment = receipt.commitment();
+            let sig_hex = sign_commitment(env, &commitment)?;
+            let full_body = serde_json::json!({
+                "output": output,
+                "receipt": {"receipt": receipt, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex},
+                "settlement": {"transaction": sr.transaction, "network": sr.network},
+            });
+            let body_bytes = serde_json::to_vec(&full_body)
                 .map_err(|e| Error::RustError(format!("body: {e}")))?;
             let body_b64 = {
                 use base64::Engine;
@@ -559,21 +576,9 @@ async fn settle_and_serve(
             // claim authority, D1 the reconciliation record
             let _ = d1_record_settlement(env, &key, &auth, request_id, tool, &input_hash, expected, payload, &sr, &pr_b64).await;
             let _ = append_event(env, request_id, tool, Some(&sr.transaction), amount, "V2_SETTLED", None).await;
-            let receipt = Receipt {
-                request_id: request_id.to_string(),
-                tool: tool.to_string(),
-                tool_version: "1.0.0".into(),
-                input_hash: hash_json(&body.input),
-                output_hash: hash_json(&output),
-                timestamp_unix: Date::now().as_millis() / 1000,
-            };
-            let commitment = receipt.commitment();
-            let sig_hex = sign_commitment(env, &commitment)?;
-            let mut r = Response::from_json(&serde_json::json!({
-                "output": output,
-                "receipt": {"receipt": receipt, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex},
-                "settlement": {"transaction": sr.transaction, "network": sr.network},
-            }))?;
+            // serve the exact stored bytes
+            let mut r = Response::from_bytes(body_bytes.clone())?;
+            r.headers_mut().set("Content-Type", "application/json")?;
             r.headers_mut().set("X-Schema-Version", "2.0")?;
             r.headers_mut().set("PAYMENT-RESPONSE", &pr_b64)?;
             Ok(cors(r)?)
