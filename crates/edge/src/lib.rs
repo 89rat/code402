@@ -444,11 +444,12 @@ async fn fetch_inner(req: Request, env: Env, _ctx: Context) -> Result<Response> 
         input_hash: hash_json(&body.input),
         output_hash: hash_json(&output),
         timestamp_unix: Date::now().as_millis() / 1000,
+        payment_ref: alloy_primitives::B256::from_slice(voucher.auth.nonce.as_slice()), // XDR-1 v0.2
     };
     let commitment = receipt.commitment();
     let sig_hex = sign_commitment(&env, &commitment)?;
     let receipt_doc = serde_json::json!({
-        "receipt": receipt, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex,
+        "receipt": receipt, "spec": m2m_core::receipt::SPEC, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex,
     });
 
     let bucket = env.bucket("RECEIPTS")?;

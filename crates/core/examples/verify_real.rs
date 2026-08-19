@@ -16,6 +16,7 @@ fn main() {
         input_hash: B256::from_slice(&hex_decode("0x6c82534c961b7974528381d7ab0279fd622dda98270fdbf9df97dd78f81c6287")),
         output_hash: B256::from_slice(&hex_decode("0x313cccdad4b6de7a28120d31aee6864128fc60e129d21247cdb8ecb2137aa237")),
         timestamp_unix: 1786934823,
+        payment_ref: B256::ZERO, // v0 receipt (issued pre-v0.2)
     };
     let stored_commitment = "fcf1ea426d16a0713e3c29fc12259ff687f0c9741cfcc216e263cd05af76412b";
     let recomputed = r.commitment();

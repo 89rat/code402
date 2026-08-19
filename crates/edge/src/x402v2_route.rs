@@ -569,12 +569,15 @@ async fn settle_and_serve(
                 input_hash: hash_json(&body.input),
                 output_hash: hash_json(&output),
                 timestamp_unix: Date::now().as_millis() / 1000,
+                // XDR-1 v0.2: bind the receipt to THIS payment authorization
+                // (the structural gate guarantees 0x+64hex by settle time)
+                payment_ref: auth.nonce.parse().unwrap_or_default(),
             };
             let commitment = receipt.commitment();
             let sig_hex = sign_commitment(env, &commitment)?;
             let full_body = serde_json::json!({
                 "output": output,
-                "receipt": {"receipt": receipt, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex},
+                "receipt": {"receipt": receipt, "spec": m2m_core::receipt::SPEC, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex},
                 "settlement": {"transaction": sr.transaction, "network": sr.network},
             });
             let body_bytes = serde_json::to_vec(&full_body)
@@ -795,12 +798,13 @@ async fn entitled_serve(
         input_hash: hash_json(&body.input),
         output_hash: hash_json(&output),
         timestamp_unix: Date::now().as_millis() / 1000,
+        payment_ref: auth.nonce.parse().unwrap_or_default(), // XDR-1 v0.2
     };
     let commitment = receipt.commitment();
     let sig_hex = sign_commitment(env, &commitment)?;
     let full_body = serde_json::json!({
         "output": output,
-        "receipt": {"receipt": receipt, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex},
+        "receipt": {"receipt": receipt, "spec": m2m_core::receipt::SPEC, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex},
         "settlement": {"transaction": tx, "network": network},
     });
     let body_bytes = serde_json::to_vec(&full_body)

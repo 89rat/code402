@@ -10,6 +10,11 @@ fn main() {
         input_hash: hash_json(&serde_json::json!({"company_number": "12345678"})),
         output_hash: hash_json(&serde_json::json!({"valid": true})),
         timestamp_unix: 1_700_000_000,
+        payment_ref: B256::from({
+            let mut pr = [0u8; 32];
+            pr[31] = 1;
+            pr
+        }),
     };
     // v0.2: domain-tagged commitment = keccak256("XDR-1" || 0x00 || payload)
     let mut payload = Vec::with_capacity(128);
