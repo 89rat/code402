@@ -23,8 +23,10 @@ use m2m_core::PaymentError;
 use serde::{Deserialize, Serialize};
 use worker::*;
 
+mod x402v2_route;
+
 // ---------- deterministic hex helpers (no extra deps) ----------
-fn hex_decode(s: &str) -> std::result::Result<Vec<u8>, ()> {
+pub(crate) fn hex_decode(s: &str) -> std::result::Result<Vec<u8>, ()> {
     let s = s.strip_prefix("0x").unwrap_or(s);
     if s.len() % 2 != 0 { return Err(()); }
     (0..s.len()).step_by(2)
@@ -44,13 +46,13 @@ fn hex_encode(b: &[u8]) -> String {
 /// require a version bump, never a silent mutation.
 pub const SCHEMA_VERSION: &str = "1.0";
 
-fn with_schema_header(r: Response) -> Result<Response> {
+pub(crate) fn with_schema_header(r: Response) -> Result<Response> {
     let mut r = r;
     r.headers_mut().set("X-Schema-Version", SCHEMA_VERSION)?;
     Ok(r)
 }
 
-fn err(code: &str, status: u16, msg: &str) -> Result<Response> {
+pub(crate) fn err(code: &str, status: u16, msg: &str) -> Result<Response> {
     // Error taxonomy: client faults (4xx) are not retryable; server faults are.
     let retryable = status >= 500 || status == 429;
     Response::from_json(&serde_json::json!({
@@ -73,7 +75,7 @@ fn map_payment_error(e: &PaymentError) -> Result<Response> {
 }
 
 // ---------- tool registry (deterministic; executed by m2m-core) ----------
-fn execute_tool(tool: &str, input: &serde_json::Value) -> std::result::Result<serde_json::Value, &'static str> {
+pub(crate) fn execute_tool(tool: &str, input: &serde_json::Value) -> std::result::Result<serde_json::Value, &'static str> {
     match tool {
         "vat-mod97-check" => {
             let raw = input.get("vat_number").and_then(|v| v.as_str()).ok_or("input.vat_number must be a string")?;
@@ -214,6 +216,16 @@ async fn fetch_inner(req: Request, env: Env, _ctx: Context) -> Result<Response> 
                     "verifyingContract": token,
                 },
                 "recipient": recipient,
+                "x402_v2": {
+                    "route": "/v2/tools/{tool}/call",
+                    "network": format!("eip155:{chain_id}"),
+                    "scheme": "exact",
+                    "assetTransferMethod": "eip3009",
+                    "paymentFlow": "upfront",
+                    "headers": ["PAYMENT-REQUIRED", "PAYMENT-SIGNATURE", "PAYMENT-RESPONSE"],
+                    "enabled": "kv:ops:x402v2_enabled",
+                    "notes": "v2 wire per x402 specification v2; settlement lands with the facilitator stage"
+                },
                 "receipt_signing_address": env.var("RECEIPT_SIGNER_ADDRESS")?.to_string(),
                 "decimals": 6,
                 "default_price": { "amount": "5000", "per": "call" },
@@ -287,9 +299,16 @@ async fn fetch_inner(req: Request, env: Env, _ctx: Context) -> Result<Response> 
         return Response::from_json(&serde_json::json!({"ok": true, "domain": domain}));
     }
 
-    // Route: POST /v1/tools/{tool}/call
+    // Route: POST /v2/tools/{tool}/call (x402 v2 wire flow; KV-gated)
+    if segs.len() == 4 && segs[0] == "v2" && segs[1] == "tools" && segs[3] == "call" {
+        let tool = segs[2].to_string();
+        let mut req = req;
+        return x402v2_route::handle(&mut req, &env, &tool).await;
+    }
+
+    // Route: POST /v1/tools/{tool}/call (legacy dialect; hard-cut at Stage 5)
     if req.method() != Method::Post || segs.len() != 4 || segs[0] != "v1" || segs[1] != "tools" || segs[3] != "call" {
-        return err("INPUT_SCHEMA_INVALID", 400, "route must be POST /v1/tools/{tool}/call");
+        return err("INPUT_SCHEMA_INVALID", 400, "route must be POST /v1/tools/{tool}/call or /v2/...");
     }
     let tool = segs[2];
     if !tool_known(tool) {
@@ -428,7 +447,7 @@ async fn fetch_inner(req: Request, env: Env, _ctx: Context) -> Result<Response> 
         .and_then(with_schema_header)
 }
 
-fn validate_only<'a>(tool: &str, input: &serde_json::Value) -> std::result::Result<(), &'a str> {
+pub(crate) fn validate_only<'a>(tool: &str, input: &serde_json::Value) -> std::result::Result<(), &'a str> {
     let field = match tool {
         "vat-mod97-check" => "vat_number",
         "company-number-format" => "company_number",
@@ -501,7 +520,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-async fn append_event(env: &Env, request_id: &str, tool: &str, tx_hash: Option<&str>,
+pub(crate) async fn append_event(env: &Env, request_id: &str, tool: &str, tx_hash: Option<&str>,
                       amount_minor: u64, status: &str, error_code: Option<&str>) -> Result<()> {
     append_event_s(env, request_id, "", tool, tx_hash, amount_minor, status, error_code).await
 }
@@ -528,7 +547,7 @@ async fn append_event_s(env: &Env, request_id: &str, suffix: &str, tool: &str, t
     Ok(())
 }
 
-fn sign_commitment(env: &Env, commitment: &B256) -> Result<String> {
+pub(crate) fn sign_commitment(env: &Env, commitment: &B256) -> Result<String> {
     let key_hex = env.secret("RECEIPT_SIGNING_KEY")?.to_string();
     let key_bytes = hex_decode(&key_hex).map_err(|_| Error::RustError("RECEIPT_SIGNING_KEY not hex".into()))?;
     let sk = SigningKey::from_slice(&key_bytes).map_err(|_| Error::RustError("RECEIPT_SIGNING_KEY invalid".into()))?;

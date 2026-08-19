@@ -42,9 +42,11 @@ assert "mac" in stamp.get("info", {}) and "iat" in stamp.get("info", {})
 PYEOF
 
 # 3. CORS: expose payment headers on 402; allow PAYMENT-SIGNATURE on preflight
-check "expose-headers on 402" "yes" "$(echo "$HDRS" | tr -d '\r' | grep -ci 'access-control-expose-headers: .*payment-required' )"
+N=$(echo "$HDRS" | tr -d '
+' | grep -ci 'access-control-expose-headers: .*payment-required'); check "expose-headers on 402" "yes" "$([ "$N" -ge 1 ] && echo yes || echo no)"
 PRE=$(curl -s -D - -o /dev/null --max-time 10 -X OPTIONS "$ROUTE" -H 'Origin: https://example.com' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: PAYMENT-SIGNATURE')
-check "preflight allows PAYMENT-SIGNATURE" "yes" "$(echo "$PRE" | tr -d '\r' | grep -ci 'access-control-allow-headers: .*payment-signature')"
+N2=$(echo "$PRE" | tr -d '
+' | grep -ci 'access-control-allow-headers: .*payment-signature'); check "preflight allows PAYMENT-SIGNATURE" "yes" "$([ "$N2" -ge 1 ] && echo yes || echo no)"
 
 # 4. duplicate payment headers -> 400
 check "duplicate header rejected" "400" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$ROUTE" -H 'content-type: application/json' -H 'PAYMENT-SIGNATURE: AAAA' -H 'PAYMENT-SIGNATURE: BBBB' -d "$BODY")"
@@ -58,7 +60,8 @@ if [ -n "${V2_PAY_FILE:-}" ] && [ -f "$V2_PAY_FILE" ]; then
   SIG=$(cat "$V2_PAY_FILE")
   R=$(curl -s -D /tmp/v2-200-h.txt -o /tmp/v2-200.json --max-time 15 -X POST "$ROUTE" -H 'content-type: application/json' -H "PAYMENT-SIGNATURE: $SIG" -d "$BODY" -w '%{http_code}')
   check "valid payment 200" "200" "$R"
-  check "output present" "yes" "$(python -c "import json;print('yes' if 'output' in json.load(open('/tmp/v2-200.json')) else 'no')" 2>/dev/null || echo no)"
+  check "output present" "yes" "$(grep -q '"output"' /tmp/v2-200.json && echo yes || echo no)"
+  check "receipt present" "yes" "$(grep -q '"receipt"' /tmp/v2-200.json && echo yes || echo no)"
 else
   echo "skip valid-payment test (V2_PAY_FILE unset — generate with keygen payv2)"
 fi

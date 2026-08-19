@@ -229,3 +229,11 @@ pub fn nonce_key(auth: &Authorization) -> Result<B256, X402Error> {
     b.extend_from_slice(&auth.nonce_bytes()?);
     Ok(alloy_primitives::keccak256(&b))
 }
+
+/// Helper mirroring SelectionPolicy::select for non-async callers (bin tools).
+pub fn select_helper<'a>(
+    pr: &'a crate::payment::x402v2::PaymentRequired,
+    policy: &SelectionPolicy,
+) -> Result<&'a crate::payment::x402v2::PaymentRequirements, X402Error> {
+    policy.select(pr)
+}
