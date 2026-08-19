@@ -8,13 +8,13 @@
 //! MAC rule (launch-checklist #9): stamps are computed over OUR canonical
 //! serialization (serde struct order), never raw header bytes.
 
-use crate::{err, execute_tool, validate_only, with_schema_header, append_event, sign_commitment, hex_decode, hex_encode, Receipt};
+use crate::{err, execute_tool, validate_only, with_schema_header, append_event, sign_commitment, hex_encode, Receipt};
 use crate::facilitator::{CdpFacilitator, Facilitator, MockFacilitator, MockSettle};
 use m2m_core::payment::settlement::SettlementClaimMachine;
 use m2m_core::payment::x402v2::FacilitatorRequest;
 use m2m_core::payment::x402v2::{
     self, decode_payment_payload, encode_payment_required, ExtensionData, PaymentPayload,
-    PaymentRequired, PaymentRequirements, ResourceInfo, StructuralContext, X402Error,
+    PaymentRequired, PaymentRequirements, ResourceInfo, StructuralContext,
 };
 use m2m_core::payment::x402v2_errors::{map_error, Taxonomy};
 use m2m_core::payment::x402v2_verify::{prefilter, VerifyOutcome};
@@ -50,7 +50,7 @@ async fn v2_payment_error(env: &Env, route_url: &str, tool: &str, amount: u64, t
     let body = serde_json::json!({
         "error": {"code": t.as_str(), "message": msg, "retryable": false}
     });
-    let mut r = Response::from_json(&body)?.with_status(402);
+    let r = Response::from_json(&body)?.with_status(402);
     let pr = ch.headers_mut().get("PAYMENT-REQUIRED")?;
     let mut r = with_schema_header(r)?;
     if let Some(pr) = pr {
@@ -351,53 +351,12 @@ async fn challenge(env: &Env, route_url: &str, tool: &str, amount_minor: u64) ->
     Ok(r)
 }
 
-async fn serve(env: &Env, request_id: &str, tool: &str, body: &CallRequest, stamped_amount: u64) -> Result<Response> {
-    // Stage 3: verified-serve. Stage 4 inserts facilitator /verify + /settle
-    // BEFORE this point (settle-before-serve, I1). The route is KV-gated
-    // dark in production until then.
-    let output = match execute_tool(tool, &body.input) {
-        Ok(o) => o,
-        Err(m) => return v2_err(Taxonomy::UnexpectedVerifyError, 500, m),
-    };
-    let _ = append_event(env, request_id, tool, None, stamped_amount, "V2_VERIFIED_SETTLE_PENDING", None).await;
-
-    let receipt = Receipt {
-        request_id: request_id.to_string(),
-        tool: tool.to_string(),
-        tool_version: "1.0.0".into(),
-        input_hash: hash_json(&body.input),
-        output_hash: hash_json(&output),
-        timestamp_unix: Date::now().as_millis() / 1000,
-    };
-    let commitment = receipt.commitment();
-    let sig_hex = sign_commitment(env, &commitment)?;
-    let receipt_doc = serde_json::json!({
-        "receipt": receipt, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex,
-    });
-    let bucket = env.bucket("RECEIPTS")?;
-    let r2_key = format!("receipts/{request_id}.json");
-    bucket.put(&r2_key, receipt_doc.to_string()).execute().await?;
-    if let Some(key) = &body.idempotency_key {
-        let _ = env
-            .d1("LEDGER")?
-            .prepare("INSERT OR IGNORE INTO idempotency(idem_key, request_id, response_ref, created_at) VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
-            .bind(&[key.clone().into(), request_id.to_string().into(), r2_key.into()])?
-            .run()
-            .await;
-    }
-    let mut r = Response::from_json(&serde_json::json!({"output": output, "receipt": receipt_doc}))?;
-    r.headers_mut().set("X-Schema-Version", "2.0")?;
-    // PAYMENT-RESPONSE lands with Stage 4 settlement (SettleResponse carries
-    // the required transaction); verified-serve is Stage-3 semantics.
-    Ok(cors(r)?)
-}
-
 // ---------------------------------------------------------------------------
 // Stage 4: settle-before-serve (I1). verify -> claim (DO) -> settle ->
 // execute -> persist -> respond with PAYMENT-RESPONSE.
 // ---------------------------------------------------------------------------
 
-fn do_cmd_url(key: &str) -> String {
+fn do_cmd_url(_key: &str) -> String {
     "https://do/cmd".to_string()
 }
 
@@ -476,7 +435,7 @@ async fn settle_and_serve(
     expected: &PaymentRequirements,
     verified_locally: bool,
 ) -> Result<Response> {
-    use m2m_core::payment::x402v2::{encode_settle_response, SettleResponse};
+    use m2m_core::payment::x402v2::encode_settle_response;
 
     // I5: fail closed on money
     if breaker_open(env).await {

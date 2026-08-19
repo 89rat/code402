@@ -151,6 +151,7 @@ pub struct MockFacilitator {
     pub settle: MockSettle,
 }
 
+#[allow(dead_code)] // failure-matrix fixtures: constructed by the pending matrix e2e
 pub enum MockSettle {
     Success,
     AlreadyUsed,

@@ -10,7 +10,7 @@
 //! janitor, not a payer. The re-drive action alone is gated by the
 //! kill-switch AND the facilitator breaker (spec §3.C.3).
 
-use crate::facilitator::{select_for_ops, Facilitator};
+use crate::facilitator::select_for_ops;
 use crate::x402v2_route::{breaker_open, claim_do, v2_enabled};
 use m2m_core::payment::reconciler::{
     classify_consuming_log, classify_settle_failure, decode_consumed_word,

@@ -254,6 +254,30 @@ async fn fetch_inner(req: Request, env: Env, _ctx: Context) -> Result<Response> 
         }
     }
 
+    // ---------- GET /v1/ops/stats — public-safe operational telemetry ----------
+    // KV-backed writers: cron (reconciler/pending counts), route (breaker,
+    // settle_pending). No secrets, no row data; 30s edge cache.
+    if req.method() == Method::Get && path == "/v1/ops/stats" {
+        let kv = env.kv("PRICING")?;
+        let val = |k: &'static str| async { kv.get(k).text().await.ok().flatten() };
+        let body = serde_json::json!({
+            "schema": "1",
+            "x402v2_enabled": val("ops:x402v2_enabled").await.as_deref() == Some("true"),
+            "facilitator_breaker": val("ops:facilitator_breaker").await,
+            "settle_pending_count": val("ops:settle_pending_count").await,
+            "pending_settlement_events": val("ops:pending_settlement").await,
+            "reconciler": {
+                "last_success_ms": val("ops:reconciler_last_success").await,
+                "stale_backlog": val("ops:stale_backlog").await,
+                "oldest_stale_age_s": val("ops:oldest_stale_age").await,
+                "canceled_last_run": val("ops:canceled_last_run").await,
+            },
+        });
+        let mut resp = Response::from_json(&body)?;
+        resp.headers_mut().set("Cache-Control", "public, max-age=30")?;
+        return Ok(resp);
+    }
+
     // ---------- code402 Verified trust registry (Phase 1) ----------
     // GET /v1/trust/{domain}            -> trust record JSON (from KV trust:{domain})
     // GET /v1/trust/{domain}/badge.svg  -> shields-style badge rendered from the record
