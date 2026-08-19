@@ -61,3 +61,23 @@ forward, which standard clients can actually answer.)
    moved, serve or make that payer whole before cutting their redemption path.
 2. **Re-run the traffic query at Stage 5** — this measurement is a point-in-time
    snapshot; re-verify ~zero settled traffic immediately before the cut.
+
+## Auth mechanism CONFIRMED (2026-08-19, checklist #4 CLOSED)
+Source: docs.cdp.coinbase.com/api-reference/v2/authentication.md + verify-payment.md.
+- Auth = **JWT Bearer**: `Authorization: Bearer $JWT`. The Secret API Key never
+  leaves our side — it locally signs JWTs (EdDSA/**Ed25519**, `kid`=key_id;
+  claims sub=key_id, iss=cdp, aud=[cdp_service], nbf/exp, uri="METHOD host/path";
+  120s lifetime). Wallet ops add X-Wallet-Auth (ES256) — NOT needed for
+  verify/settle. => Implement JWT minting in the worker with ed25519-dalek
+  (exactly Rev 3 G10's prediction; ring stays out). CDP_API_KEY secret =
+  TWO parts (key id + secret), one wrangler secret as `id:secret`.
+- **Base URL: https://api.cdp.coinbase.com/platform** — our client appends
+  /v2/x402/verify|settle; verified against the live reference.
+- `GET /supported` endpoint CONFIRMED (G7 health probe target is real).
+- Payout config: CDP's DEFAULT settles into a provisioned CDP Server Wallet
+  (custodial); `payToConfig type:"address"` = OUR OWN wallet (self-custody,
+  what we use — COMPANY_WALLET). The "Coinbase Business account" marketing
+  flow corresponds to their custodial default — NOT a protocol requirement.
+- Account requirement: **CDP developer credentials only** (console.cdp.coinbase.com).
+  The "Coinbase Business APIs" docs family (checkout APIs) is a separate
+  product; x402 facilitator needs no Business account.
