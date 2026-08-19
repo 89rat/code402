@@ -70,7 +70,7 @@ impl CdpFacilitator {
         Ok(format!("{signing}.{}", b64u(&sig.to_bytes())))
     }
 
-    async fn call<T: for<'de> serde::Deserialize<'de>>(
+    async fn call<T: for<'de> serde::Deserialize<'de> + RejectionShape>(
         &self,
         path: &str,
         req: &FacilitatorRequest,
@@ -92,6 +92,29 @@ impl CdpFacilitator {
         let mut resp = Fetch::Request(r).send().await?;
         if resp.status_code() != 200 {
             let body = resp.text().await.unwrap_or_default();
+            // Deterministic facilitator rejections (4xx + JSON errorType) are
+            // OUTCOMES, not transport failures — a broke payer is a clean
+            // insufficient_funds, never an ambiguous timeout. (Found by the
+            // claims volley, C6.) Parse into the typed response; only
+            // 5xx/undecodable bodies remain Err.
+            if resp.status_code() >= 400 && resp.status_code() < 500 {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
+                    if let Some(et) = v.get("errorType").and_then(|x| x.as_str()) {
+                        return self.reject_as_outcome(et, &v);
+                    }
+                    if let (Some(false), Some(_reason)) = (
+                        v.get("success").and_then(|x| x.as_bool()),
+                        v.get("errorReason"),
+                    ) {
+                        // already a settle-response shape; failures legally omit
+                        // 'transaction' (empty = nothing broadcast, spec 5.3.2)
+                        let mut vv = v.clone();
+                        vv.as_object_mut().map(|o| o.entry("transaction").or_insert(serde_json::json!("")));
+                        return serde_json::from_value(vv)
+                            .map_err(|e| Error::RustError(format!("facilitator decode: {e}")));
+                    }
+                }
+            }
             return Err(Error::RustError(format!(
                 "facilitator {}: {}",
                 resp.status_code(),
@@ -169,6 +192,43 @@ impl Facilitator for MockFacilitator {
                 }),
                 MockSettle::Timeout5xx => Err(Error::RustError("facilitator 5xx: simulated".into())),
             }
+        })
+    }
+}
+
+impl CdpFacilitator {
+    /// Shape a facilitator 4xx JSON error into the typed outcome. The two
+    /// call sites differ only in response type; we detect via the generic.
+    fn reject_as_outcome<T: RejectionShape>(
+        &self,
+        error_type: &str,
+        body: &serde_json::Value,
+    ) -> std::result::Result<T, Error> {
+        T::from_error_type(error_type, body)
+    }
+}
+
+/// Types that can be built from a facilitator errorType rejection.
+pub trait RejectionShape: Sized {
+    fn from_error_type(et: &str, body: &serde_json::Value) -> std::result::Result<Self, Error>;
+}
+
+impl RejectionShape for VerifyResponse {
+    fn from_error_type(et: &str, _b: &serde_json::Value) -> std::result::Result<Self, Error> {
+        Ok(VerifyResponse { is_valid: false, invalid_reason: Some(et.to_string()), payer: None, extra: None })
+    }
+}
+
+impl RejectionShape for SettleResponse {
+    fn from_error_type(et: &str, _b: &serde_json::Value) -> std::result::Result<Self, Error> {
+        Ok(SettleResponse {
+            success: false,
+            error_reason: Some(et.to_string()),
+            payer: None,
+            transaction: String::new(),
+            network: String::new(),
+            amount: None,
+            extensions: None,
         })
     }
 }
