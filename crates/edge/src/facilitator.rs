@@ -19,8 +19,8 @@ pub trait Facilitator {
 
 pub struct CdpFacilitator {
     base: String,
-    key_id: String,
-    secret_b64: String,
+    keys: Vec<(String, String)>,
+    next: std::sync::atomic::AtomicUsize,
 }
 
 impl CdpFacilitator {
@@ -31,10 +31,15 @@ impl CdpFacilitator {
             _ => "https://api.cdp.coinbase.com/platform".to_string(),
         };
         let raw = env.secret("CDP_API_KEY")?.to_string();
-        let (key_id, secret_b64) = raw
-            .split_once(':')
-            .ok_or_else(|| Error::RustError("CDP_API_KEY must be key-id:secret-b64".into()))?;
-        Ok(Self { base, key_id: key_id.to_string(), secret_b64: secret_b64.to_string() })
+        let keys: Vec<(String, String)> = raw
+            .split(',')
+            .filter_map(|p| p.split_once(':'))
+            .map(|(i, s)| (i.trim().to_string(), s.trim().to_string()))
+            .collect();
+        if keys.is_empty() {
+            return Err(Error::RustError("CDP_API_KEY must be id:secret[,id:secret...]".into()));
+        }
+        Ok(Self { base, keys, next: std::sync::atomic::AtomicUsize::new(0) })
     }
 
     /// Mint a 120s EdDSA JWT (docs.cdp.coinbase.com/api-reference/v2/
@@ -42,9 +47,13 @@ impl CdpFacilitator {
     fn mint_jwt(&self, uri: &str) -> Result<String> {
         use base64::Engine;
         use ed25519_dalek::Signer;
+        let (key_id, secret_b64) = {
+            let i = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % self.keys.len();
+            &self.keys[i]
+        };
         let b64u = |b: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b);
         let kp_raw = base64::engine::general_purpose::STANDARD
-            .decode(&self.secret_b64)
+            .decode(secret_b64)
             .map_err(|e| Error::RustError(format!("cdp secret b64: {e}")))?;
         if kp_raw.len() != 64 {
             return Err(Error::RustError("cdp secret must be 64 bytes (keypair)".into()));
@@ -55,10 +64,10 @@ impl CdpFacilitator {
             .map_err(|e| Error::RustError(format!("cdp key: {e}")))?;
         let now = Date::now().as_millis() / 1000;
         // nonce: uniqueness only (the docs do not constrain its form)
-        let nonce = format!("n{now}-{}", &self.secret_b64[self.secret_b64.len().saturating_sub(8)..]);
-        let header = serde_json::json!({"alg":"EdDSA","typ":"JWT","kid":self.key_id,"nonce":nonce});
+        let nonce = format!("n{now}-{}", &secret_b64[secret_b64.len().saturating_sub(8)..]);
+        let header = serde_json::json!({"alg":"EdDSA","typ":"JWT","kid":key_id,"nonce":nonce});
         let claims = serde_json::json!({
-            "sub": self.key_id, "iss": "cdp", "aud": ["cdp_service"],
+            "sub": key_id, "iss": "cdp", "aud": ["cdp_service"],
             "nbf": now, "exp": now + 120, "uri": uri,
         });
         let signing = format!(

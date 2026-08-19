@@ -415,7 +415,21 @@ async fn breaker_open(env: &Env) -> bool {
     match env.kv("PRICING") {
         // fail CLOSED on read failure (kill-switch design)
         Err(_) => true,
-        Ok(kv) => matches!(kv.get("ops:facilitator_breaker").text().await, Ok(Some(v)) if v == "open"),
+        Ok(kv) => {
+            if matches!(kv.get("ops:facilitator_breaker").text().await, Ok(Some(v)) if v == "open") {
+                return true;
+            }
+            // Stress-II finding: sustained ambiguity rate is its own failure
+            // signal — the degradation window would have tripped this at
+            // wave 21, not wave 40. Counter incremented per settlement_pending
+            // response; hourly cron (G7) resets it.
+            if let Ok(Some(n)) = kv.get("ops:settle_pending_count").text().await {
+                if let Ok(n) = n.parse::<u64>() {
+                    return n > 100; // >100 pending in the hour = degraded facilitator
+                }
+            }
+            false
+        }
     }
 }
 
@@ -604,7 +618,21 @@ async fn settle_and_serve(
             v2_err(t, 400, &format!("settlement failed: {reason}"))
         }
         Err(_) => {
-            v2_err(Taxonomy::SettlementPending, 503, "settle outcome unknown (timeout); lease recovers the claim; retryable")
+            {
+                if let Ok(kv) = env.kv("PRICING") {
+                    if let Ok(Some(cur)) = kv.get("ops:settle_pending_count").text().await {
+                        let n: u64 = cur.parse().unwrap_or(0);
+                        if let Ok(p) = kv.put("ops:settle_pending_count", (n + 1).to_string()) {
+                            let _ = p.execute().await;
+                        }
+                    } else if let Ok(kv2) = env.kv("PRICING") {
+                        if let Ok(p) = kv2.put("ops:settle_pending_count", "1") {
+                            let _ = p.execute().await;
+                        }
+                    }
+                }
+                v2_err(Taxonomy::SettlementPending, 503, "settle outcome unknown (timeout); lease recovers the claim; retryable")
+            }
         }
     }
 }

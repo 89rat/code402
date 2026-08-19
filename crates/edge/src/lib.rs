@@ -727,6 +727,8 @@ async fn reconcile_and_probe(env: &Env) -> Result<()> {
     db.prepare("INSERT INTO reconciliation_runs(run_id, started_at, finished_at, checked, backfilled, divergent, notes) VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?2, ?3, 0, ?4)")
         .bind(&[format!("run-{}", Date::now().as_millis()).into(), (checked as f64).into(), (backfilled as f64).into(), format!("chain events in window").into()])?
         .run().await?;
+    // reset the hourly settlement_pending counter (breaker window)
+    let _ = env.kv("PRICING")?.delete("ops:settle_pending_count").await;
     console_log!("G7 reconcile: {checked} chain events, {backfilled} phantoms backfilled");
     Ok(())
 }
