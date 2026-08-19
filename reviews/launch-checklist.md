@@ -41,3 +41,18 @@ gate opens.
    — `extra` key order differs between implementations (BTreeMap alphabetize
    vs SDK insertion order; Stage-2 differential finding) and must never
    enter any MAC or signature input.
+
+## Latency decisions (operator-accepted 2026-08-19)
+10. **Option A applied**: LocalPass payments skip facilitator /verify (spec
+    `upfront` ordering omits it; local ecrecover is the quota guard; settle
+    stays authoritative). PassThrough (6492/1271) still verifies. One
+    facilitator RTT per payment instead of two; wall-clock remains
+    block-bound (~2s, physics per design-logic Law 1).
+11. **Option B parked with trigger**: offering the spec-default
+    `authorization` flow (verify -> serve -> async settle, ~150-300ms) as a
+    SECOND accept alongside `upfront` — reopens locked decision 1; evaluate
+    at Stage 5 with real customer data (do agents churn on 2.5s?) and a
+    per-payer velocity-cap + delivery-scoring design. Not before.
+12. **Option C parked with trigger**: payment sessions / upto-style prepay
+    (first call ~2s, subsequent ~1ms) — entry trigger: the crawler track's
+    repeated-fetch pattern demanding it (C3+).

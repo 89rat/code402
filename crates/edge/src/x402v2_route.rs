@@ -250,12 +250,14 @@ pub async fn handle(req: &mut Request, env: &Env, tool: &str) -> Result<Response
         return v2_err(t, 400, "structural gate");
     }
 
-    match prefilter(&payload, &expected) {
+    let outcome = prefilter(&payload, &expected);
+    match outcome {
         VerifyOutcome::LocalReject(e) => {
             v2_err(map_error(&e), 400, "local verification failed")
         }
         VerifyOutcome::PassThrough | VerifyOutcome::LocalPass { .. } => {
-            settle_and_serve(env, &request_id, tool, &body, amount, &payload, &expected).await
+            let verified_locally = matches!(outcome, VerifyOutcome::LocalPass { .. });
+            settle_and_serve(env, &request_id, tool, &body, amount, &payload, &expected, verified_locally).await
         }
     }
 }
@@ -446,6 +448,7 @@ async fn settle_and_serve(
     amount: u64,
     payload: &m2m_core::payment::x402v2::PaymentPayload,
     expected: &PaymentRequirements,
+    verified_locally: bool,
 ) -> Result<Response> {
     use m2m_core::payment::x402v2::{encode_settle_response, SettleResponse};
 
@@ -511,18 +514,25 @@ async fn settle_and_serve(
         other => return v2_err(Taxonomy::UnexpectedVerifyError, 500, &format!("claim kind {other:?}")),
     }
 
-    // facilitator /verify (always free per CDP economics)
     let freq = FacilitatorRequest::new(payload.clone(), expected.clone())
         .map_err(|e| Error::RustError(format!("facilitator request: {e:?}")))?;
-    let verify = match facilitator.verify(&freq).await {
-        Ok(v) => v,
-        Err(e) => {
-            return v2_err(Taxonomy::UnexpectedVerifyError, 503, &format!("facilitator verify error: {e:?}"));
+    // Option A (operator-accepted 2026-08-19): LocalPass payments SKIP
+    // facilitator /verify — the local ecrecover already proved the signature
+    // under our domain, and the spec's `upfront` ordering does not include
+    // /verify ("validity is established by settle"). Verify runs ONLY for
+    // PassThrough (6492/1271), where the facilitator is the sole verifier.
+    // /settle remains authoritative for every path.
+    if !verified_locally {
+        let verify = match facilitator.verify(&freq).await {
+            Ok(v) => v,
+            Err(e) => {
+                return v2_err(Taxonomy::UnexpectedVerifyError, 503, &format!("facilitator verify error: {e:?}"));
+            }
+        };
+        if !verify.is_valid {
+            let reason = verify.invalid_reason.clone().unwrap_or_else(|| "invalid_payment_requirements".into());
+            return v2_err(Taxonomy::InvalidPaymentRequirements, 400, &format!("facilitator rejected: {reason}"));
         }
-    };
-    if !verify.is_valid {
-        let reason = verify.invalid_reason.clone().unwrap_or_else(|| "invalid_payment_requirements".into());
-        return v2_err(Taxonomy::InvalidPaymentRequirements, 400, &format!("facilitator rejected: {reason}"));
     }
 
     // begin settle (lease refresh)
