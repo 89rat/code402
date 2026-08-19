@@ -46,6 +46,11 @@ fn transition_json(t: ClaimTransition) -> serde_json::Value {
         ClaimTransition::Terminal => serde_json::json!({"kind": "terminal"}),
         ClaimTransition::Settling => serde_json::json!({"kind": "settling"}),
         ClaimTransition::Settled => serde_json::json!({"kind": "settled"}),
+        // RECONCILER-SPEC v1: chain-proved settlement with an owed execution
+        ClaimTransition::Entitled { tx_hash, network } => serde_json::json!({
+            "kind": "entitled", "tx_hash": tx_hash, "network": network,
+        }),
+        ClaimTransition::SettledReconciled => serde_json::json!({"kind": "settled_reconciled"}),
     }
 }
 
@@ -107,6 +112,24 @@ impl DurableObject for SettlementClaim {
             "receipt_pending" => {
                 let existing = io.load(&key).await?;
                 let (row, t) = SettlementClaimMachine::terminal_step(existing, ClaimStatus::ReceiptPending, None)?;
+                if let Some(r) = row { io.save(&key, &r).await?; }
+                Ok(t)
+            }
+            // RECONCILER-SPEC v1 §3 (cron write-back): the chain resolved the
+            // claim; the pure core steps decide legality (absorbing law).
+            "reconcile_settled" => {
+                let tx = body.get("tx").and_then(|t| t.as_str()).unwrap_or_default();
+                let net = body.get("network").and_then(|n| n.as_str()).unwrap_or_default();
+                let until = body.get("eligible_until").and_then(|u| u.as_u64()).unwrap_or_default();
+                let existing = io.load(&key).await?;
+                let (row, t) = SettlementClaimMachine::reconcile_settled_step(existing, tx, net, until)?;
+                if let Some(r) = row { io.save(&key, &r).await?; }
+                Ok(t)
+            }
+            "reconcile_failed" => {
+                let reason = body.get("reason").and_then(|r| r.as_str()).unwrap_or("reconciled");
+                let existing = io.load(&key).await?;
+                let (row, t) = SettlementClaimMachine::reconcile_failed_step(existing, reason)?;
                 if let Some(r) = row { io.save(&key, &r).await?; }
                 Ok(t)
             }

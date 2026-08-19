@@ -197,3 +197,116 @@ fn exhaustive_model_check_all_interleavings() {
     }
     assert_eq!(violations, 0, "model-check violations");
 }
+
+// ---------------------------------------------------------------------------
+// RECONCILER-SPEC v1 (reviews/reconciler-spec-v1.md §3.C) — chain-resolved
+// claims: settled_reconciled grants ONE free execution; canceled/expired are
+// terminal; every terminal state absorbs.
+// ---------------------------------------------------------------------------
+
+fn wedged_claim(s: &mut MemStore) -> String {
+    // claim -> settle in flight -> isolate dies (the phantom shape)
+    let m = SettlementClaimMachine;
+    let i = input(100);
+    let key = SettlementClaimMachine::key_for(&i.payer, &i.nonce);
+    m.claim(s, &i).unwrap();
+    m.begin_settle(s, &key, 110).unwrap();
+    key
+}
+
+#[test]
+fn reconciled_used_grants_one_free_execution_then_replays() {
+    let mut s = MemStore::default();
+    let m = SettlementClaimMachine;
+    let key = wedged_claim(&mut s);
+    // cron resolves via AuthorizationUsed log at t=1000, TTL 24h
+    assert!(matches!(
+        m.reconcile_settled(&mut s, &key, "0xchain_tx", "eip155:84532", 1000 + 86_400).unwrap(),
+        ClaimTransition::SettledReconciled
+    ));
+    // the payer's retry (same payment, same nonce) is ENTITLED: free execution
+    match m.claim(&mut s, &input(2000)).unwrap() {
+        ClaimTransition::Entitled { tx_hash, network } => {
+            assert_eq!(tx_hash, "0xchain_tx");
+            assert_eq!(network, "eip155:84532");
+        }
+        other => panic!("expected Entitled, got {other:?}"),
+    }
+    // the entitled execution stores its response -> Settled
+    assert!(matches!(
+        m.settled(&mut s, &key, &input(2000), "0xchain_tx", "eip155:84532", b"{\"output\":7}", "PR-B64").unwrap(),
+        ClaimTransition::Settled
+    ));
+    // subsequent retries of the same payment: identical stored replay
+    match m.claim(&mut s, &input(2100)).unwrap() {
+        ClaimTransition::Replay { .. } => {}
+        other => panic!("expected Replay after entitled execution, got {other:?}"),
+    }
+}
+
+#[test]
+fn entitlement_expires_after_ttl() {
+    let mut s = MemStore::default();
+    let m = SettlementClaimMachine;
+    let key = wedged_claim(&mut s);
+    m.reconcile_settled(&mut s, &key, "0xtx", "eip155:84532", 500).unwrap();
+    // exactly at the deadline: still entitled (inclusive)
+    assert!(matches!(
+        m.claim(&mut s, &input(500)).unwrap(),
+        ClaimTransition::Entitled { .. }
+    ));
+    // one second past: dead — authorization consumed, entitlement expired
+    assert!(matches!(
+        m.claim(&mut s, &input(501)).unwrap(),
+        ClaimTransition::Terminal
+    ));
+}
+
+#[test]
+fn reconciled_canceled_and_expired_are_terminal_and_absorbing() {
+    let mut s = MemStore::default();
+    let m = SettlementClaimMachine;
+    // canceled from a wedged settling claim
+    let key = wedged_claim(&mut s);
+    assert!(matches!(
+        m.reconcile_failed(&mut s, &key, "reconciled_canceled").unwrap(),
+        ClaimTransition::Failed
+    ));
+    assert!(matches!(
+        m.claim(&mut s, &input(120)).unwrap(),
+        ClaimTransition::Terminal
+    ));
+    // absorbing: no reconcile step leaves a terminal state
+    assert!(m.reconcile_settled(&mut s, &key, "0xtx", "n", 999).is_err());
+    assert!(m.reconcile_failed(&mut s, &key, "reconciled_expired").is_err());
+    // and neither does the plain settle path
+    assert!(m.settled(&mut s, &key, &input(120), "0xtx", "n", b"{}", "B").is_err());
+}
+
+#[test]
+fn reconcile_resolves_receipt_pending_claims() {
+    // the G2d phantom class: money moved, facilitator said already-used,
+    // cron later proves Used on chain -> entitlement (never assumed-ours before)
+    let mut s = MemStore::default();
+    let m = SettlementClaimMachine;
+    let i = input(100);
+    let key = SettlementClaimMachine::key_for(&i.payer, &i.nonce);
+    m.claim(&mut s, &i).unwrap();
+    m.begin_settle(&mut s, &key, 110).unwrap();
+    m.receipt_pending(&mut s, &key).unwrap();
+    assert!(matches!(
+        m.reconcile_settled(&mut s, &key, "0xtx", "eip155:84532", 86_400).unwrap(),
+        ClaimTransition::SettledReconciled
+    ));
+    // ...and the disproof direction: chain says Canceled after receipt_pending
+    let mut s2 = MemStore::default();
+    let key2 = {
+        let k = wedged_claim(&mut s2);
+        m.receipt_pending(&mut s2, &k).unwrap();
+        k
+    };
+    assert!(matches!(
+        m.reconcile_failed(&mut s2, &key2, "reconciled_canceled").unwrap(),
+        ClaimTransition::Failed
+    ));
+}

@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use worker::*;
 
 mod facilitator;
+mod reconciler;
 mod settlement_do;
 mod x402v2_route;
 
@@ -618,7 +619,15 @@ async fn run_scheduled(event: &ScheduledEvent, env: &Env) -> Result<()> {
                 .first::<serde_json::Value>(None).await?;
             let count = row.and_then(|r| r["c"].as_u64()).unwrap_or(0);
             env.kv("PRICING")?.put("ops:pending_settlement", count.to_string())?.execute().await?;
-            // G7: on-chain reconciliation + /supported health probe (G8 breaker)
+            // G7: on-chain reconciliation + /supported health probe (G8 breaker).
+            // The RECONCILER-SPEC v1 sweep runs FIRST (three-way resolver over
+            // stale claims: authorizationState + getLogs + entitlement
+            // write-back); the Transfer-scan backfill below remains for
+            // row-less phantoms (crash before the claim-time bridge).
+            match reconciler::sweep(&env).await {
+                Ok(st) => console_log!("reconciler sweep ok: {st:?}"),
+                Err(e) => console_error!("reconciler sweep failed: {e}"),
+            }
             if let Err(e) = reconcile_and_probe(&env).await {
                 console_error!("G7 reconciliation failed: {e}");
             }

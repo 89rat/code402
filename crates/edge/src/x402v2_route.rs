@@ -93,8 +93,9 @@ fn stamp_mac(key: &[u8], canonical: &str, iat: u64) -> Result<Vec<u8>> {
     Ok(mac.finalize().into_bytes().to_vec())
 }
 
-async fn v2_enabled(env: &Env) -> bool {
-    // Fail closed on any KV read failure (kill-switch design).
+pub(crate) async fn v2_enabled(env: &Env) -> bool {
+    // Fail closed on any KV read failure (kill-switch design). Also the
+    // reconciler's re-drive gate (RECONCILER-SPEC §3.C.3).
     match env.kv("PRICING") {
         Ok(kv) => matches!(kv.get("ops:x402v2_enabled").text().await, Ok(Some(v)) if v == "true"),
         Err(_) => false,
@@ -391,7 +392,9 @@ fn do_cmd_url(key: &str) -> String {
     "https://do/cmd".to_string()
 }
 
-async fn claim_do(env: &Env, key: &str, cmd_json: serde_json::Value) -> Result<serde_json::Value> {
+/// One JSON command round-trip to a SettlementClaim DO instance. Shared with
+/// the reconciler sweep's write-back (the DO is the claim authority).
+pub(crate) async fn claim_do(env: &Env, key: &str, cmd_json: serde_json::Value) -> Result<serde_json::Value> {
     let ns = env.durable_object("SETTLEMENT_CLAIM")?;
     // instance id derived from the claim key (hash(from||nonce))
     let id = ns.id_from_name(key)?;
@@ -411,7 +414,7 @@ async fn claim_do(env: &Env, key: &str, cmd_json: serde_json::Value) -> Result<s
     resp.json().await
 }
 
-async fn breaker_open(env: &Env) -> bool {
+pub(crate) async fn breaker_open(env: &Env) -> bool {
     match env.kv("PRICING") {
         // fail CLOSED on read failure (kill-switch design)
         Err(_) => true,
@@ -518,6 +521,13 @@ async fn settle_and_serve(
             }
             return Ok(cors(r)?);
         }
+        // RECONCILER-SPEC §3.C.1: the chain proved this nonce paid and the
+        // entitlement is live — execute FREE (no facilitator), once.
+        "entitled" => {
+            let tx = claim.get("tx_hash").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let net = claim.get("network").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            return entitled_serve(env, &key, request_id, tool, body, auth, expected, amount, &tx, &net).await;
+        }
         "in_progress" => {
             return v2_err(Taxonomy::UnexpectedVerifyError, 503, "settlement in progress by concurrent request; retry shortly");
         }
@@ -527,6 +537,11 @@ async fn settle_and_serve(
         "claimed" | "lease_expired" => {} // we hold the claim
         other => return v2_err(Taxonomy::UnexpectedVerifyError, 500, &format!("claim kind {other:?}")),
     }
+
+    // Claim-time D1 bridge (RECONCILER-SPEC amendment): the settlements row
+    // exists from the moment a claim is held, carrying the full payload —
+    // a crashed isolate leaves a reconcilable record, not a void.
+    let _ = d1_bridge_claim(env, &key, auth, request_id, tool, &input_hash, expected, payload).await;
 
     let freq = FacilitatorRequest::new(payload.clone(), expected.clone())
         .map_err(|e| Error::RustError(format!("facilitator request: {e:?}")))?;
@@ -551,6 +566,7 @@ async fn settle_and_serve(
 
     // begin settle (lease refresh)
     let _ = claim_do(env, &key, serde_json::json!({"cmd": "begin_settle", "key": key, "now": now})).await?;
+    let _ = d1_mark(env, &auth.from, &auth.nonce, "settling", None, None).await;
 
     // /settle — the money moment
     let settle_out = facilitator.settle(&freq).await;
@@ -563,6 +579,7 @@ async fn settle_and_serve(
                     // window is handled by replay (stored failure) in Stage 4
                     // hardening; record + report honestly
                     let _ = claim_do(env, &key, serde_json::json!({"cmd": "failed", "key": key, "reason": "TOOL_INTERNAL_ERROR"})).await;
+                    let _ = d1_mark(env, &auth.from, &auth.nonce, "failed", None, Some("TOOL_INTERNAL_ERROR")).await;
                     return v2_err(Taxonomy::UnexpectedVerifyError, 500, m);
                 }
             };
@@ -596,9 +613,9 @@ async fn settle_and_serve(
                 "tx": sr.transaction, "network": sr.network,
                 "response_body_b64": body_b64, "payment_response": pr_b64,
             })).await?;
-            // durable record (0002 settlements) — best effort; the DO is the
-            // claim authority, D1 the reconciliation record
-            let _ = d1_record_settlement(env, &key, &auth, request_id, tool, &input_hash, expected, payload, &sr, &pr_b64).await;
+            // durable record (0002/0003 settlements) — best effort; the DO is
+            // the claim authority, D1 the reconciliation record
+            let _ = d1_record_settlement(env, &key, auth, request_id, tool, &input_hash, expected, payload, &sr, &pr_b64, &body_bytes).await;
             let _ = append_event(env, request_id, tool, Some(&sr.transaction), amount, "V2_SETTLED", None).await;
             // serve the exact stored bytes
             let mut r = Response::from_bytes(body_bytes.clone())?;
@@ -611,9 +628,11 @@ async fn settle_and_serve(
             let reason = sr.error_reason.clone().unwrap_or_else(|| "unexpected_settle_error".into());
             if reason == "invalid_exact_evm_payload_signature" && sr.transaction.is_empty() {
                 let _ = claim_do(env, &key, serde_json::json!({"cmd": "receipt_pending", "key": key})).await;
+                let _ = d1_mark(env, &auth.from, &auth.nonce, "receipt_pending", None, None).await;
                 return v2_err(Taxonomy::SettlementPending, 503, "authorization already used; reconciliation pending; retryable");
             }
             let _ = claim_do(env, &key, serde_json::json!({"cmd": "failed", "key": key, "reason": &reason})).await;
+            let _ = d1_mark(env, &auth.from, &auth.nonce, "failed", None, Some(&reason)).await;
             let t = if reason == "insufficient_funds" { Taxonomy::InsufficientFunds } else { Taxonomy::UnexpectedSettleError };
             v2_err(t, 400, &format!("settlement failed: {reason}"))
         }
@@ -637,8 +656,11 @@ async fn settle_and_serve(
     }
 }
 
+/// Claim-time bridge (RECONCILER-SPEC amendment): the settlements row exists
+/// from claim, status 'claimed', full payload persisted — the reconciler's
+/// stale-select and the re-drive both work off this row. Idempotent.
 #[allow(clippy::too_many_arguments)]
-async fn d1_record_settlement(
+async fn d1_bridge_claim(
     env: &Env,
     key: &str,
     auth: &m2m_core::payment::x402v2::Authorization,
@@ -647,15 +669,13 @@ async fn d1_record_settlement(
     input_hash: &str,
     expected: &PaymentRequirements,
     payload: &m2m_core::payment::x402v2::PaymentPayload,
-    sr: &m2m_core::payment::x402v2::SettleResponse,
-    pr_b64: &str,
 ) -> Result<()> {
     use worker::wasm_bindgen::JsValue;
     let payload_json = serde_json::to_string(payload)
         .map_err(|e| Error::RustError(format!("payload: {e}")))?;
     let db = env.d1("LEDGER")?;
     db.prepare(
-        "INSERT OR IGNORE INTO settlements(id, payer, nonce, request_id, tool, input_hash, status, scheme, network, asset, amount, pay_to, payment_payload, tx_hash, settle_network, payment_response) VALUES (?1,?2,?3,?4,?5,?6,'settled','exact',?7,?8,?9,?10,?11,?12,?13,?14)"
+        "INSERT OR IGNORE INTO settlements(id, payer, nonce, request_id, tool, input_hash, status, scheme, network, asset, amount, pay_to, payment_payload) VALUES (?1,?2,?3,?4,?5,?6,'claimed','exact',?7,?8,?9,?10,?11)",
     ).bind(&[
         JsValue::from_str(key),
         JsValue::from_str(&auth.from),
@@ -668,9 +688,159 @@ async fn d1_record_settlement(
         JsValue::from_str(&expected.amount),
         JsValue::from_str(&expected.pay_to),
         JsValue::from_str(&payload_json),
+    ])?.run().await?;
+    Ok(())
+}
+
+/// Non-terminal status mark (settling / receipt_pending / failed) — guarded
+/// by the same absorbing predicate as the reconciler: a terminal row is
+/// never overwritten by the request path either.
+async fn d1_mark(env: &Env, payer: &str, nonce: &str, status: &str, tx: Option<&str>, failure: Option<&str>) -> Result<()> {
+    use worker::wasm_bindgen::JsValue;
+    let db = env.d1("LEDGER")?;
+    db.prepare(
+        "UPDATE settlements SET status=?3, tx_hash=COALESCE(?4, tx_hash), failure_reason=?5, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE payer=?1 AND nonce=?2 AND status IN ('claimed','settling','receipt_pending','settlement_pending')",
+    ).bind(&[
+        JsValue::from_str(payer),
+        JsValue::from_str(nonce),
+        JsValue::from_str(status),
+        tx.map(JsValue::from_str).unwrap_or(JsValue::NULL),
+        failure.map(JsValue::from_str).unwrap_or(JsValue::NULL),
+    ])?.run().await?;
+    Ok(())
+}
+
+/// Settle-success record: bridge-ensure (safety net if the claim-time write
+/// failed), then the guarded terminal UPDATE. Response bytes persist for D1
+/// readers (the DO remains the replay authority), mirroring the DO's 256KB
+/// non-replayable gate (G10).
+#[allow(clippy::too_many_arguments)]
+async fn d1_record_settlement(
+    env: &Env,
+    key: &str,
+    auth: &m2m_core::payment::x402v2::Authorization,
+    request_id: &str,
+    tool: &str,
+    input_hash: &str,
+    expected: &PaymentRequirements,
+    payload: &m2m_core::payment::x402v2::PaymentPayload,
+    sr: &m2m_core::payment::x402v2::SettleResponse,
+    pr_b64: &str,
+    body_bytes: &[u8],
+) -> Result<()> {
+    use worker::wasm_bindgen::JsValue;
+    let _ = d1_bridge_claim(env, key, auth, request_id, tool, input_hash, expected, payload).await;
+    let replayable_body = if body_bytes.len() <= 256 * 1024 {
+        std::str::from_utf8(body_bytes).map(JsValue::from_str).unwrap_or(JsValue::NULL)
+    } else {
+        JsValue::NULL
+    };
+    let db = env.d1("LEDGER")?;
+    db.prepare(
+        "UPDATE settlements SET status='settled', tx_hash=?3, settle_network=?4, payment_response=?5, response_body=?6, settled_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), resolution='facilitator', resolution_tx=?3, resolved_at=CAST(strftime('%s','now') AS INTEGER) WHERE payer=?1 AND nonce=?2 AND status IN ('claimed','settling','receipt_pending','settlement_pending')",
+    ).bind(&[
+        JsValue::from_str(&auth.from),
+        JsValue::from_str(&auth.nonce),
         JsValue::from_str(&sr.transaction),
         JsValue::from_str(&sr.network),
         JsValue::from_str(pr_b64),
+        replayable_body,
     ])?.run().await?;
     Ok(())
+}
+
+/// The entitlement execution (RECONCILER-SPEC §3.C.1): the chain already
+/// moved this money; the payer retries the identical payment and receives
+/// the tool's output FREE — once; the DO stores the response so later
+/// retries replay identically.
+#[allow(clippy::too_many_arguments)]
+async fn entitled_serve(
+    env: &Env,
+    key: &str,
+    request_id: &str,
+    tool: &str,
+    body: &CallRequest,
+    auth: &m2m_core::payment::x402v2::Authorization,
+    expected: &PaymentRequirements,
+    amount: u64,
+    tx: &str,
+    network: &str,
+) -> Result<Response> {
+    use m2m_core::payment::x402v2::{encode_settle_response, SettleResponse};
+
+    let output = match execute_tool(tool, &body.input) {
+        Ok(o) => o,
+        // entitlement SURVIVES a tool failure until the TTL — retry executes free again
+        Err(m) => return v2_err(Taxonomy::UnexpectedVerifyError, 500, m),
+    };
+    // synthesize the settlement proof header from the chain evidence
+    let sr = SettleResponse {
+        success: true,
+        error_reason: None,
+        payer: Some(auth.from.clone()),
+        transaction: tx.to_string(),
+        network: network.to_string(),
+        amount: Some(expected.amount.clone()),
+        extensions: None,
+    };
+    let pr_b64 = encode_settle_response(&sr)
+        .map_err(|e| Error::RustError(format!("encode PAYMENT-RESPONSE: {e:?}")))?;
+    let receipt = Receipt {
+        request_id: request_id.to_string(),
+        tool: tool.to_string(),
+        tool_version: "1.0.0".into(),
+        input_hash: hash_json(&body.input),
+        output_hash: hash_json(&output),
+        timestamp_unix: Date::now().as_millis() / 1000,
+    };
+    let commitment = receipt.commitment();
+    let sig_hex = sign_commitment(env, &commitment)?;
+    let full_body = serde_json::json!({
+        "output": output,
+        "receipt": {"receipt": receipt, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex},
+        "settlement": {"transaction": tx, "network": network},
+    });
+    let body_bytes = serde_json::to_vec(&full_body)
+        .map_err(|e| Error::RustError(format!("body: {e}")))?;
+    // store the executed response (DO: SettledReconciled -> Settled)
+    let body_b64 = {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(&body_bytes)
+    };
+    let _ = claim_do(env, key, serde_json::json!({
+        "cmd": "settled", "key": key,
+        "tx": tx, "network": network,
+        "response_body_b64": body_b64, "payment_response": pr_b64,
+    })).await;
+    // D1: status stays 'settled_reconciled' (absorbing); only the response
+    // columns and the bounded re-execution counter move.
+    if let Ok(db) = env.d1("LEDGER") {
+        let _ = async {
+            use worker::wasm_bindgen::JsValue;
+            let replayable = if body_bytes.len() <= 256 * 1024 {
+                std::str::from_utf8(&body_bytes).map(JsValue::from_str).unwrap_or(JsValue::NULL)
+            } else {
+                JsValue::NULL
+            };
+            db.prepare(
+                "UPDATE settlements SET response_body=?3, payment_response=?4, reexec_count=MIN(reexec_count+1,3), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE payer=?1 AND nonce=?2 AND status='settled_reconciled'",
+            )
+            .bind(&[
+                JsValue::from_str(&auth.from),
+                JsValue::from_str(&auth.nonce),
+                replayable,
+                JsValue::from_str(&pr_b64),
+            ])?
+            .run()
+            .await?;
+            Ok::<(), Error>(())
+        }
+        .await;
+    }
+    let _ = append_event(env, request_id, tool, Some(tx), amount, "V2_ENTITLED_SERVE", None).await;
+    let mut r = Response::from_bytes(body_bytes)?;
+    r.headers_mut().set("Content-Type", "application/json")?;
+    r.headers_mut().set("X-Schema-Version", "2.0")?;
+    r.headers_mut().set("PAYMENT-RESPONSE", &pr_b64)?;
+    Ok(cors(r)?)
 }

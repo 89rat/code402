@@ -217,6 +217,24 @@ impl CdpFacilitator {
     }
 }
 
+/// Ops/cron facilitator selection (RECONCILER-SPEC §3.C.3 re-drive): CDP when
+/// configured; the dev mock ONLY behind the explicit KV opt-in (same guard as
+/// the route). None => re-drive is skipped, never guessed.
+pub async fn select_for_ops(env: &Env) -> Option<Box<dyn Facilitator>> {
+    if let Ok(f) = CdpFacilitator::from_env(env) {
+        return Some(Box::new(f));
+    }
+    if let Ok(kv) = env.kv("PRICING") {
+        if matches!(kv.get("ops:mock_facilitator").text().await, Ok(Some(v)) if v == "true") {
+            return Some(Box::new(MockFacilitator {
+                verify_valid: true,
+                settle: MockSettle::Success,
+            }));
+        }
+    }
+    None
+}
+
 /// Types that can be built from a facilitator errorType rejection.
 pub trait RejectionShape: Sized {
     fn from_error_type(et: &str, body: &serde_json::Value) -> std::result::Result<Self, Error>;

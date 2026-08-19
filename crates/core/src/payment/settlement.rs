@@ -24,6 +24,11 @@ pub enum ClaimStatus {
     Settled,
     Failed,
     ReceiptPending,
+    /// RECONCILER-SPEC v1: the chain proved the nonce was consumed by a
+    /// transfer, but we hold no stored response — the payer is owed ONE free
+    /// execution until `reconciled_eligible_until` (G2 entitlement). Transitions
+    /// to `Settled` when the entitled execution stores its response.
+    SettledReconciled,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -43,6 +48,9 @@ pub struct ClaimRow {
     pub response_body: Option<Vec<u8>>,
     pub payment_response_b64: Option<String>,
     pub failure_reason: Option<String>,
+    /// entitlement deadline (unix) while status == SettledReconciled (spec §3.C.1)
+    #[serde(default)]
+    pub reconciled_eligible_until: Option<u64>,
 }
 
 /// Storage seam: the DO (production), D1 (record), or MemStore (tests).
@@ -79,6 +87,11 @@ pub enum ClaimTransition {
     Terminal,
     Settling,
     Settled,
+    /// Chain-proved settlement with no stored response: the caller executes
+    /// the tool FREE, once, before the entitlement deadline (reconciler G2).
+    Entitled { tx_hash: String, network: String },
+    /// Reconciler audit transition: claim moved to settled_reconciled.
+    SettledReconciled,
 }
 
 #[derive(Clone, Copy)]
@@ -110,6 +123,7 @@ impl SettlementClaimMachine {
             response_body: None,
             payment_response_b64: None,
             failure_reason: None,
+            reconciled_eligible_until: None,
         }
     }
 
@@ -139,6 +153,19 @@ impl SettlementClaimMachine {
                     }
                 }
                 ClaimStatus::Failed | ClaimStatus::ReceiptPending => Ok(ClaimTransition::Terminal),
+                ClaimStatus::SettledReconciled => {
+                    // reconciler entitlement: paid on chain, never served —
+                    // ONE free execution until the deadline, then dead.
+                    let until = row.reconciled_eligible_until.unwrap_or(0);
+                    if i.now_unix <= until {
+                        Ok(ClaimTransition::Entitled {
+                            tx_hash: row.tx_hash.clone().unwrap_or_default(),
+                            network: row.network.clone().unwrap_or_default(),
+                        })
+                    } else {
+                        Ok(ClaimTransition::Terminal)
+                    }
+                }
                 ClaimStatus::Claimed | ClaimStatus::Settling => {
                     if i.now_unix.saturating_sub(row.claimed_at) > LEASE_SECS {
                         // holder presumed dead: free the nonce, re-claim
@@ -182,7 +209,7 @@ impl SettlementClaimMachine {
         payment_response_b64: &str,
     ) -> Result<ClaimTransition, String> {
         match s.load(key)? {
-            Some(mut row) if matches!(row.status, ClaimStatus::Settling | ClaimStatus::Claimed) => {
+            Some(mut row) if matches!(row.status, ClaimStatus::Settling | ClaimStatus::Claimed | ClaimStatus::SettledReconciled) => {
                 row.status = ClaimStatus::Settled;
                 row.tx_hash = Some(tx_hash.to_string());
                 row.network = Some(network.to_string());
@@ -259,6 +286,20 @@ impl SettlementClaimMachine {
                     }
                 }
                 ClaimStatus::Failed | ClaimStatus::ReceiptPending => (None, ClaimTransition::Terminal),
+                ClaimStatus::SettledReconciled => {
+                    let until = row.reconciled_eligible_until.unwrap_or(0);
+                    if i.now_unix <= until {
+                        (
+                            None,
+                            ClaimTransition::Entitled {
+                                tx_hash: row.tx_hash.clone().unwrap_or_default(),
+                                network: row.network.clone().unwrap_or_default(),
+                            },
+                        )
+                    } else {
+                        (None, ClaimTransition::Terminal)
+                    }
+                }
                 ClaimStatus::Claimed | ClaimStatus::Settling => {
                     if i.now_unix.saturating_sub(row.claimed_at) > LEASE_SECS {
                         (Some(Self::fresh_row(i)), ClaimTransition::LeaseExpired)
@@ -293,7 +334,7 @@ impl SettlementClaimMachine {
         payment_response_b64: &str,
     ) -> Result<(Option<ClaimRow>, ClaimTransition), String> {
         match existing {
-            Some(mut row) if matches!(row.status, ClaimStatus::Settling | ClaimStatus::Claimed) => {
+            Some(mut row) if matches!(row.status, ClaimStatus::Settling | ClaimStatus::Claimed | ClaimStatus::SettledReconciled) => {
                 row.status = ClaimStatus::Settled;
                 row.tx_hash = Some(tx_hash.to_string());
                 row.network = Some(network.to_string());
@@ -327,5 +368,89 @@ impl SettlementClaimMachine {
             Some(row) => Err(format!("terminal_step from {:?}", row.status)),
             None => Err("no such claim".into()),
         }
+    }
+
+    /// RECONCILER-SPEC §3.C.1: the chain says AuthorizationUsed — record the
+    /// on-chain settle (tx from the log) and grant the replay entitlement.
+    /// ReceiptPending is a legal source: the chain just resolved the "maybe
+    /// used" hypothesis in favour of "used".
+    pub fn reconcile_settled_step(
+        existing: Option<ClaimRow>,
+        tx_hash: &str,
+        network: &str,
+        eligible_until: u64,
+    ) -> Result<(Option<ClaimRow>, ClaimTransition), String> {
+        match existing {
+            Some(mut row)
+                if matches!(
+                    row.status,
+                    ClaimStatus::Claimed | ClaimStatus::Settling | ClaimStatus::ReceiptPending
+                ) =>
+            {
+                row.status = ClaimStatus::SettledReconciled;
+                row.tx_hash = Some(tx_hash.to_string());
+                row.network = Some(network.to_string());
+                row.reconciled_eligible_until = Some(eligible_until);
+                row.failure_reason = None;
+                Ok((Some(row), ClaimTransition::SettledReconciled))
+            }
+            Some(row) => Err(format!("reconcile_settled from {:?}", row.status)),
+            None => Err("no such claim".into()),
+        }
+    }
+
+    /// RECONCILER-SPEC §3.C.1/C.2: the chain says Canceled (or the window
+    /// expired unused) — terminal failure with the chain-truth reason. Never
+    /// reachable from a terminal state (absorbing law).
+    pub fn reconcile_failed_step(
+        existing: Option<ClaimRow>,
+        reason: &str,
+    ) -> Result<(Option<ClaimRow>, ClaimTransition), String> {
+        match existing {
+            Some(mut row)
+                if matches!(
+                    row.status,
+                    ClaimStatus::Claimed | ClaimStatus::Settling | ClaimStatus::ReceiptPending
+                ) =>
+            {
+                row.status = ClaimStatus::Failed;
+                row.failure_reason = Some(reason.to_string());
+                Ok((Some(row), ClaimTransition::Failed))
+            }
+            Some(row) => Err(format!("reconcile_failed from {:?}", row.status)),
+            None => Err("no such claim".into()),
+        }
+    }
+}
+
+impl SettlementClaimMachine {
+    /// Store-composed wrappers for the reconciler steps (the DO calls the
+    /// step functions directly; these serve tests and future callers).
+    pub fn reconcile_settled<S: ClaimStore>(
+        &self,
+        s: &mut S,
+        key: &str,
+        tx_hash: &str,
+        network: &str,
+        eligible_until: u64,
+    ) -> Result<ClaimTransition, String> {
+        let (row, t) = Self::reconcile_settled_step(s.load(key)?, tx_hash, network, eligible_until)?;
+        if let Some(r) = row {
+            s.save(key, r)?;
+        }
+        Ok(t)
+    }
+
+    pub fn reconcile_failed<S: ClaimStore>(
+        &self,
+        s: &mut S,
+        key: &str,
+        reason: &str,
+    ) -> Result<ClaimTransition, String> {
+        let (row, t) = Self::reconcile_failed_step(s.load(key)?, reason)?;
+        if let Some(r) = row {
+            s.save(key, r)?;
+        }
+        Ok(t)
     }
 }
