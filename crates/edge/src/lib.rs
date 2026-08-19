@@ -23,6 +23,7 @@ use m2m_core::PaymentError;
 use serde::{Deserialize, Serialize};
 use worker::*;
 
+mod facilitator;
 mod x402v2_route;
 
 // ---------- deterministic hex helpers (no extra deps) ----------
