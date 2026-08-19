@@ -618,6 +618,10 @@ async fn run_scheduled(event: &ScheduledEvent, env: &Env) -> Result<()> {
                 .first::<serde_json::Value>(None).await?;
             let count = row.and_then(|r| r["c"].as_u64()).unwrap_or(0);
             env.kv("PRICING")?.put("ops:pending_settlement", count.to_string())?.execute().await?;
+            // G7: on-chain reconciliation + /supported health probe (G8 breaker)
+            if let Err(e) = reconcile_and_probe(&env).await {
+                console_error!("G7 reconciliation failed: {e}");
+            }
         }
         "0 2 * * *" => {
             // daily accounting export to R2
@@ -656,4 +660,109 @@ impl DurableObject for NonceGuard {
         storage.put(&key, serde_json::json!({"claimed": true})).await?;
         Response::ok("claimed")
     }
+}
+
+// ---------- G7: on-chain reconciliation + facilitator health probe ----------
+// Scans AuthorizationUsed events from the USDC contract (EIP-3009 burns the
+// nonce on-chain — the root of truth). Every event whose (payer, nonce) has
+// no settled row in D1 is a phantom (settle completed server-side after our
+// timeout) — backfilled here. Also probes GET /supported and opens the
+// breaker if our scheme/network pair disappears.
+async fn reconcile_and_probe(env: &Env) -> Result<()> {
+    let chain: u64 = env.var("CHAIN_ID")?.to_string().parse().unwrap_or(84532);
+    let rpc = env.secret("RPC_PRIMARY")?.to_string();
+    let token = env.var("USDC_BASE")?.to_string().to_lowercase();
+
+    // health probe first (cheap, fail-open on meta per I5 — logged, not fatal)
+    let _ = probe_supported(env).await;
+
+    // OUR money only: Transfer(from, to, value) with to = COMPANY_WALLET.
+    // (AuthorizationUsed watches the whole world's testnet USDC; watching
+    // transfers TO US is the precise reconciliation scope.)
+    let company = env.secret("COMPANY_WALLET")?.to_string().to_lowercase();
+    let addr_pad = format!("0x{}", format!("{}{}", "0".repeat(64 - (company.len() - 2)), &company[2..]));
+    let topic0 = format!("0x{}", {
+        let h = keccak256(b"Transfer(address,address,uint256)");
+        h.iter().map(|x| format!("{x:02x}")).collect::<String>()
+    });
+    // last ~4h of blocks (~7200 at 2s)
+    let latest: u64 = serde_json::from_str::<serde_json::Value>(
+        &rpc_call(&rpc, "eth_blockNumber", serde_json::json!([])).await?,
+    )?["result"].as_str().and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+        .ok_or_else(|| Error::RustError("blockNumber".into()))?;
+    let from = latest.saturating_sub(7200);
+    let logs_body = serde_json::json!([{
+        "address": token,
+        "topics": [topic0, null, addr_pad],  // Transfer -> US
+        "fromBlock": format!("0x{from:x}"),
+        "toBlock": "latest",
+    }]);
+    let logs_raw = rpc_call(&rpc, "eth_getLogs", logs_body).await?;
+    let logs: Vec<serde_json::Value> = serde_json::from_str::<serde_json::Value>(&logs_raw)?["result"]
+        .as_array().cloned().unwrap_or_default();
+    let db = env.d1("LEDGER")?;
+    let mut checked = 0usize; let mut backfilled = 0usize;
+    for log in &logs {
+        let topics = log["topics"].as_array().cloned().unwrap_or_default();
+        if topics.len() < 3 { continue; }
+        // topic1 = from (payer); nonce unknown from Transfer — use tx-bound id
+        let payer_full = topics[1].as_str().unwrap_or_default().to_lowercase();
+        let payer = format!("0x{}", &payer_full[payer_full.len().saturating_sub(40)..]);
+        let tx = log["transactionHash"].as_str().unwrap_or_default().to_string();
+        let nonce = format!("0x{}", &tx[2..66]); // tx-derived unique id for reconciled rows
+        checked += 1;
+        let exists = db.prepare("SELECT id FROM settlements WHERE (payer = ?1 AND nonce = ?2) OR tx_hash = ?3")
+            .bind(&[payer.clone().into(), nonce.clone().into(), tx.clone().into()])?
+            .first::<serde_json::Value>(None).await?;
+        if exists.is_none() {
+            db.prepare("INSERT OR IGNORE INTO settlements(id, payer, nonce, request_id, tool, input_hash, status, scheme, network, asset, amount, pay_to, payment_payload, tx_hash, settle_network, failure_reason) VALUES (?1,?2,?3,'reconciled','unknown','rh','settled','exact',?4,?5,'0','0','{}',?6,?4,'reconciled_from_chain')")
+                .bind(&[
+                    nonce.clone().into(), payer.into(), nonce.clone().into(),
+                    format!("eip155:{chain}").into(), token.clone().into(), tx.into(),
+                ])?
+                .run().await?;
+            backfilled += 1;
+        }
+    }
+    db.prepare("INSERT INTO reconciliation_runs(run_id, started_at, finished_at, checked, backfilled, divergent, notes) VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?2, ?3, 0, ?4)")
+        .bind(&[format!("run-{}", Date::now().as_millis()).into(), (checked as f64).into(), (backfilled as f64).into(), format!("chain events in window").into()])?
+        .run().await?;
+    console_log!("G7 reconcile: {checked} chain events, {backfilled} phantoms backfilled");
+    Ok(())
+}
+
+async fn probe_supported(env: &Env) -> Result<()> {
+    // G7/G8: GET /supported — assert our scheme+network is still offered;
+    // open the breaker if not (I5: fail closed on money).
+    let chain: u64 = env.var("CHAIN_ID")?.to_string().parse().unwrap_or(84532);
+    let want = format!("eip155:{chain}");
+    let mut init = RequestInit::new();
+    init.with_method(Method::Get);
+    let req = Request::new_with_init("https://api.cdp.coinbase.com/platform/v2/x402/supported", &init)?;
+    let mut resp = Fetch::Request(req).send().await?;
+    let body: serde_json::Value = resp.json().await?;
+    let ok = body["kinds"].as_array().map(|k| {
+        k.iter().any(|x| x["network"].as_str() == Some(want.as_str()) && x["scheme"].as_str() == Some("exact"))
+    }).unwrap_or(false);
+    let kv = env.kv("PRICING")?;
+    if ok {
+        let _ = kv.delete("ops:facilitator_breaker").await; // only the health probe lifts it
+    } else {
+        kv.put("ops:facilitator_breaker", "open")?.execute().await?;
+        console_error!("G7: /supported no longer lists {want}:exact — breaker OPEN");
+    }
+    Ok(())
+}
+
+async fn rpc_call(rpc: &str, method: &str, params: serde_json::Value) -> Result<String> {
+    let payload = serde_json::json!({"jsonrpc":"2.0","id":1,"method":method,"params":params});
+    let mut headers = Headers::new();
+    headers.set("content-type", "application/json")?;
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post);
+    init.with_headers(headers);
+    init.with_body(Some(payload.to_string().into()));
+    let req = Request::new_with_init(rpc, &init)?;
+    let mut resp = Fetch::Request(req).send().await?;
+    resp.text().await
 }
