@@ -13,8 +13,9 @@
 use crate::facilitator::{select_for_ops, Facilitator};
 use crate::x402v2_route::{breaker_open, claim_do, v2_enabled};
 use m2m_core::payment::reconciler::{
-    classify_consuming_log, decode_consumed_word, encode_authorization_state_call,
-    evidence_from_reads, pad32_address, resolve, ConsumingLog, Resolution, REPLAY_TTL_SECS,
+    classify_consuming_log, classify_settle_failure, decode_consumed_word,
+    encode_authorization_state_call, evidence_from_reads, pad32_address, resolve, ConsumingLog,
+    Resolution, SettleFailureClass, REPLAY_TTL_SECS,
 };
 use m2m_core::payment::x402v2::{FacilitatorRequest, PaymentPayload};
 use worker::*;
@@ -262,7 +263,17 @@ pub async fn sweep(env: &Env) -> Result<SweepStats> {
                         }
                     }
                     // neither event in any window: do not guess (spec §3.C.1)
-                    Resolution::LeaveAmbiguous => st.left_ambiguous += 1,
+                    Resolution::LeaveAmbiguous => {
+                        st.left_ambiguous += 1;
+                        if deep {
+                            // m3: silent forever-ambiguous is invisible — escalate
+                            console_error!(
+                                "RECONCILER: nonce {} consumed but NO event found even after deep scan ({} blocks) — RPC indexer lag or wrong window",
+                                r["nonce"].as_str().unwrap_or_default(),
+                                DEEP_WINDOWS * LOGS_WINDOW_BLOCKS
+                            );
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -279,7 +290,10 @@ pub async fn sweep(env: &Env) -> Result<SweepStats> {
 
 /// DO write-back FIRST (the DO is the claim authority — if it refuses, the
 /// row stays stale and retries next run; D1 never records a terminal state
-/// the DO does not hold).
+/// the DO does not hold). IDEMPOTENT: a refusal because the DO is ALREADY in
+/// the target terminal state (a previous run's DO write landed but the D1
+/// update failed) counts as success — the D1 resolve then converges. Without
+/// this, a single D1 hiccup wedges the row forever (red team #2).
 async fn do_reconcile_settled(
     env: &Env,
     row: &serde_json::Value,
@@ -292,13 +306,23 @@ async fn do_reconcile_settled(
         "cmd": "reconcile_settled", "key": key,
         "tx": tx, "network": network, "eligible_until": until,
     });
-    claim_do(env, &key, cmd).await.is_ok()
+    match claim_do(env, &key, cmd).await {
+        Ok(_) => true,
+        // "reconcile_settled from SettledReconciled" = already resolved
+        Err(e) if e.to_string().contains("reconcile_settled from SettledReconciled") => true,
+        Err(_) => false,
+    }
 }
 
 async fn do_reconcile_failed(env: &Env, row: &serde_json::Value, reason: &str) -> bool {
     let key = row["id"].as_str().unwrap_or_default().to_string();
     let cmd = serde_json::json!({"cmd": "reconcile_failed", "key": key, "reason": reason});
-    claim_do(env, &key, cmd).await.is_ok()
+    match claim_do(env, &key, cmd).await {
+        Ok(_) => true,
+        // already failed by a previous run (D1 write is the straggler)
+        Err(e) if e.to_string().contains("reconcile_failed from Failed") => true,
+        Err(_) => false,
+    }
 }
 
 /// Guarded terminal UPDATE (absorbing law): the WHERE clause is the law's
@@ -344,7 +368,16 @@ async fn d1_resolve(
 /// Spec §3.C.3: our settle never landed and the authorization is still
 /// consumable — resubmit the IDENTICAL stored payload. "Already used" is NOT
 /// success-blindness: the row is left for next run's chain disambiguation.
+/// AGE-CAPPED at 48h: a garbage-but-gate-passing payload that CDP keeps
+/// rejecting would otherwise re-drive every hour until its (attacker-chosen,
+/// possibly year-2100) validBefore — the cap bounds any single row to ~48
+/// attempts (red team #4).
 async fn redrive(env: &Env, db: &worker::D1Database, row: &serde_json::Value, now: u64, st: &mut SweepStats) {
+    if let Some(updated) = row["updated_epoch"].as_i64() {
+        if now.saturating_sub(updated as u64) > 48 * 3600 {
+            return; // past the re-drive age cap; expiry resolves it (or it never will — bounded garbage)
+        }
+    }
     let payload_json = row["payment_payload"].as_str().unwrap_or_default();
     let Ok(pp) = serde_json::from_str::<PaymentPayload>(payload_json) else {
         st.left_ambiguous += 1;
@@ -369,21 +402,24 @@ async fn redrive(env: &Env, db: &worker::D1Database, row: &serde_json::Value, no
         Ok(sr) if sr.success => {
             let until = now + REPLAY_TTL_SECS;
             if do_reconcile_settled(env, row, &sr.transaction, &sr.network, until).await {
-                // entitlement granted: the payer's retry executes free
-                d1_resolve(db, row, "settled", "facilitator", Some(&sr.transaction), Some(until)).await;
+                // D1 must MATCH the DO (Kimi M1): the DO claim is
+                // SettledReconciled-with-entitlement, so D1 is
+                // 'settled_reconciled' too — otherwise d1_entitled() misses
+                // re-drive rows after the 300s stamp grace and the payer's
+                // late retry 400s instead of executing free.
+                d1_resolve(db, row, "settled_reconciled", "facilitator", Some(&sr.transaction), Some(until)).await;
                 st.redrive_settled += 1;
             } else {
                 st.errors += 1;
             }
         }
-        Ok(sr)
-            if !sr.success
-                && matches!(
-                    sr.error_reason.as_deref(),
-                    Some("invalid_exact_evm_payload_signature")
-                        | Some("settle_exact_failed_onchain")
-                        | Some("invalid_payload")
-                ) =>
+        Ok(sr) if !sr.success
+            && matches!(
+                classify_settle_failure(
+                    sr.error_reason.as_deref().unwrap_or("")
+                ),
+                SettleFailureClass::AmbiguousMoney
+            ) =>
         {
             // already-used between our read and the settle (live CDP shape:
             // invalid_payload + the doomed replay tx hash): the chain will
@@ -463,6 +499,15 @@ async fn record_run(env: &Env, db: &worker::D1Database, st: &SweepStats) {
         Ok(kv) => kv,
         Err(_) => return,
     };
+    // spec §5: ANY cancel against us is anomalous (possibly adversarial
+    // probing) — investigate at >= 1 (Kimi m5)
+    if st.resolved_canceled > 0 {
+        console_error!("RECONCILER ALARM: {}/{} claims canceled on-chain this run — adversarial probing?",
+            st.resolved_canceled, st.scanned);
+        if let Ok(p) = kv.put("ops:canceled_last_run", st.resolved_canceled.to_string()) {
+            let _ = p.execute().await;
+        }
+    }
     let now_ms = Date::now().as_millis().to_string();
     if let Ok(p) = kv.put("ops:reconciler_last_success", now_ms) {
         let _ = p.execute().await;

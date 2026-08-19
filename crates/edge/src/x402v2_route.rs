@@ -226,9 +226,13 @@ pub async fn handle(req: &mut Request, env: &Env, tool: &str) -> Result<Response
     // Entitlement TTL (24h) exceeds stamp grace (300s) BY DESIGN (G2 +
     // RECONCILER-SPEC §3.C.1): a payment whose nonce holds a live
     // reconciler entitlement skips the AGE gate only — the MAC still binds
-    // the echoed requirement, so tampering stays fatal.
+    // the echoed requirement, so tampering stays fatal. D1 unavailability is
+    // NOT a rejection (Kimi m9): unknown entitlement => retryable 503.
     let entitled = d1_entitled(env, &payload.payload.authorization.from, &payload.payload.authorization.nonce, now).await;
-    if iat > now + 60 || (iat + grace < now && !entitled) {
+    if iat > now + 60 || (iat + grace < now && entitled != Some(true)) {
+        if entitled.is_none() {
+            return v2_err(Taxonomy::SettlementPending, 503, "entitlement check unavailable; retry");
+        }
         return v2_err(Taxonomy::InvalidPaymentRequirements, 400, "stamped requirement outside grace window");
     }
     let canonical = canonical_requirement(&payload.accepted)?;
@@ -527,10 +531,17 @@ async fn settle_and_serve(
             return Ok(cors(r)?);
         }
         // RECONCILER-SPEC §3.C.1: the chain proved this nonce paid and the
-        // entitlement is live — execute FREE (no facilitator), once.
+        // entitlement is live — execute FREE (no facilitator), once, bound to
+        // the ORIGINAL input (G2c: no compute oracle).
         "entitled" => {
             let tx = claim.get("tx_hash").and_then(|v| v.as_str()).unwrap_or_default().to_string();
             let net = claim.get("network").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let bound_input = claim.get("input_hash").and_then(|v| v.as_str()).unwrap_or_default();
+            let want_input = hex_encode(hash_json(&body.input).as_slice());
+            if bound_input != want_input {
+                return v2_err(Taxonomy::InvalidPayload, 400,
+                    "entitlement is bound to the original request input (G2c); re-sign a new payment for different input");
+            }
             return entitled_serve(env, &key, request_id, tool, body, auth, expected, amount, &tx, &net).await;
         }
         "in_progress" => {
@@ -631,31 +642,27 @@ async fn settle_and_serve(
         }
         Ok(sr) => {
             let reason = sr.error_reason.clone().unwrap_or_else(|| "unexpected_settle_error".into());
-            // AMBIGUOUS MONEY class (G2d) — the nonce's chain state is NOT
-            // provably unconsumed, so NEVER a terminal failure; receipt_pending
-            // and the cron's chain read decides. Live-verified CDP shapes for
-            // an already-consumed nonce (2026-08-19 probes):
-            //   4xx {errorReason: "invalid_payload", transaction: <cdp's
-            //        doomed replay tx>, errorMessage: "authorization nonce
-            //        already submitted; transaction already on-chain"}
-            //   4xx {errorType: "settle_exact_failed_onchain"}   (earlier probe)
-            //   invalid_exact_evm_payload_signature              (volley/mock)
-            // At settle-time our structural gate has ALREADY passed, so any
-            // of these means CDP-side rejection of a well-formed payment —
-            // fail CLOSED on money: ambiguous.
-            let ambiguous = matches!(
-                reason.as_str(),
-                "invalid_exact_evm_payload_signature" | "settle_exact_failed_onchain" | "invalid_payload"
-            );
-            if ambiguous {
-                let _ = claim_do(env, &key, serde_json::json!({"cmd": "receipt_pending", "key": key})).await;
-                let _ = d1_mark(env, &auth.from, &auth.nonce, "receipt_pending", None, None).await;
-                return v2_err(Taxonomy::SettlementPending, 503, "authorization already used; reconciliation pending; retryable");
+            // Single source of truth (core::reconciler::classify_settle_failure):
+            // ambiguous-money (already-used shapes observed live) is NEVER a
+            // terminal failure — receipt_pending, the cron's chain read decides.
+            use m2m_core::payment::reconciler::{classify_settle_failure, SettleFailureClass};
+            match classify_settle_failure(&reason) {
+                SettleFailureClass::AmbiguousMoney => {
+                    let _ = claim_do(env, &key, serde_json::json!({"cmd": "receipt_pending", "key": key})).await;
+                    let _ = d1_mark(env, &auth.from, &auth.nonce, "receipt_pending", None, None).await;
+                    return v2_err(Taxonomy::SettlementPending, 503, "authorization already used; reconciliation pending; retryable");
+                }
+                SettleFailureClass::InsufficientFunds => {
+                    let _ = claim_do(env, &key, serde_json::json!({"cmd": "failed", "key": key, "reason": &reason})).await;
+                    let _ = d1_mark(env, &auth.from, &auth.nonce, "failed", None, Some(&reason)).await;
+                    return v2_err(Taxonomy::InsufficientFunds, 400, &format!("settlement failed: {reason}"));
+                }
+                SettleFailureClass::CleanReject => {}
             }
+            // clean reject: nonce definitely unconsumed — terminal failed
             let _ = claim_do(env, &key, serde_json::json!({"cmd": "failed", "key": key, "reason": &reason})).await;
             let _ = d1_mark(env, &auth.from, &auth.nonce, "failed", None, Some(&reason)).await;
-            let t = if reason == "insufficient_funds" { Taxonomy::InsufficientFunds } else { Taxonomy::UnexpectedSettleError };
-            v2_err(t, 400, &format!("settlement failed: {reason}"))
+            v2_err(Taxonomy::UnexpectedSettleError, 400, &format!("settlement failed: {reason}"))
         }
         Err(_) => {
             {
@@ -679,17 +686,18 @@ async fn settle_and_serve(
 
 /// Live reconciler entitlement? (status settled_reconciled within TTL) —
 /// gates only the stamp AGE bypass above; the claim DO remains the authority.
-async fn d1_entitled(env: &Env, payer: &str, nonce: &str, now: u64) -> bool {
-    let Ok(db) = env.d1("LEDGER") else { return false; };
+/// None = D1 unavailable (caller must treat as retryable-unknown, Kimi m9).
+async fn d1_entitled(env: &Env, payer: &str, nonce: &str, now: u64) -> Option<bool> {
+    let db = env.d1("LEDGER").ok()?;
     let stmt = db.prepare(
         "SELECT 1 FROM settlements WHERE payer=?1 AND nonce=?2 \
          AND status='settled_reconciled' AND replay_eligible_until > ?3 LIMIT 1",
     );
-    let bound = match stmt.bind(&[payer.into(), nonce.into(), (now as f64).into()]) {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-    matches!(bound.first::<serde_json::Value>(None).await, Ok(Some(_)))
+    let bound = stmt.bind(&[payer.into(), nonce.into(), (now as f64).into()]).ok()?;
+    match bound.first::<serde_json::Value>(None).await {
+        Ok(row) => Some(row.is_some()),
+        Err(_) => None,
+    }
 }
 
 /// Claim-time bridge (RECONCILER-SPEC amendment): the settlements row exists
@@ -838,16 +846,24 @@ async fn entitled_serve(
     });
     let body_bytes = serde_json::to_vec(&full_body)
         .map_err(|e| Error::RustError(format!("body: {e}")))?;
-    // store the executed response (DO: SettledReconciled -> Settled)
+    // store the executed response (DO: SettledReconciled -> Settled) —
+    // MANDATORY before responding (Kimi M3.2): if this write fails the payer
+    // gets a retryable 503 and the entitlement survives; a served response
+    // with a failed store would leave the entitlement live = free executions.
     let body_b64 = {
         use base64::Engine;
         base64::engine::general_purpose::STANDARD.encode(&body_bytes)
     };
-    let _ = claim_do(env, key, serde_json::json!({
+    let stored = claim_do(env, key, serde_json::json!({
         "cmd": "settled", "key": key,
         "tx": tx, "network": network,
         "response_body_b64": body_b64, "payment_response": pr_b64,
     })).await;
+    if stored.is_err() {
+        let _ = append_event(env, request_id, tool, Some(tx), amount, "V2_ENTITLED_STORE_FAILED", None).await;
+        return v2_err(Taxonomy::SettlementPending, 503,
+            "entitlement store failed; retry executes free again (TTL bounded)");
+    }
     // D1: status stays 'settled_reconciled' (absorbing); only the response
     // columns and the bounded re-execution counter move.
     if let Ok(db) = env.d1("LEDGER") {

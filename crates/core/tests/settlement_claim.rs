@@ -225,10 +225,12 @@ fn reconciled_used_grants_one_free_execution_then_replays() {
         ClaimTransition::SettledReconciled
     ));
     // the payer's retry (same payment, same nonce) is ENTITLED: free execution
+    // bound to the ORIGINAL input (G2c)
     match m.claim(&mut s, &input(2000)).unwrap() {
-        ClaimTransition::Entitled { tx_hash, network } => {
+        ClaimTransition::Entitled { tx_hash, network, input_hash } => {
             assert_eq!(tx_hash, "0xchain_tx");
             assert_eq!(network, "eip155:84532");
+            assert_eq!(input_hash, "ih", "entitlement carries the original input_hash");
         }
         other => panic!("expected Entitled, got {other:?}"),
     }

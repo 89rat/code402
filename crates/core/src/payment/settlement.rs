@@ -89,7 +89,9 @@ pub enum ClaimTransition {
     Settled,
     /// Chain-proved settlement with no stored response: the caller executes
     /// the tool FREE, once, before the entitlement deadline (reconciler G2).
-    Entitled { tx_hash: String, network: String },
+    /// input_hash binds the free execution to the ORIGINAL request (G2c) —
+    /// the entitlement is not a compute oracle.
+    Entitled { tx_hash: String, network: String, input_hash: String },
     /// Reconciler audit transition: claim moved to settled_reconciled.
     SettledReconciled,
 }
@@ -161,6 +163,7 @@ impl SettlementClaimMachine {
                         Ok(ClaimTransition::Entitled {
                             tx_hash: row.tx_hash.clone().unwrap_or_default(),
                             network: row.network.clone().unwrap_or_default(),
+                            input_hash: row.input_hash.clone(),
                         })
                     } else {
                         Ok(ClaimTransition::Terminal)
@@ -294,6 +297,7 @@ impl SettlementClaimMachine {
                             ClaimTransition::Entitled {
                                 tx_hash: row.tx_hash.clone().unwrap_or_default(),
                                 network: row.network.clone().unwrap_or_default(),
+                                input_hash: row.input_hash.clone(),
                             },
                         )
                     } else {

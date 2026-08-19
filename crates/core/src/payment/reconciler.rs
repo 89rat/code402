@@ -87,7 +87,11 @@ pub fn topic_authorization_canceled() -> alloy_primitives::B256 {
 
 pub fn pad32_address(addr: &str) -> String {
     let clean = addr.strip_prefix("0x").unwrap_or(addr).to_lowercase();
-    format!("0x{}{}", "0".repeat(64 - clean.len()), clean)
+    // saturate (Kimi m1): a corrupt DB-sourced payer longer than 64 hex must
+    // never panic the sweep — pad zero, pass through, the read decodes to
+    // None and the row counts ambiguous instead of crashing the run.
+    let pad = 64usize.saturating_sub(clean.len());
+    format!("0x{}{}", "0".repeat(pad), clean)
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +106,10 @@ pub fn encode_authorization_state_call(from: &str, nonce_hex: &str) -> Result<St
     let nonce = nonce_hex.strip_prefix("0x").unwrap_or(nonce_hex).to_lowercase();
     if nonce.len() != 64 || !nonce.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(format!("nonce not 0x+64hex: {nonce_hex}"));
+    }
+    let from_clean = from.strip_prefix("0x").unwrap_or(from);
+    if from_clean.len() != 40 || !from_clean.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("payer not 0x+40hex: {from}"));
     }
     Ok(format!(
         "0x{}{}{}",
@@ -127,6 +135,35 @@ pub fn decode_consumed_word(ret: &str) -> Option<bool> {
 pub enum ConsumingLog {
     Used,
     Canceled,
+}
+
+/// How a failed facilitator /settle must be treated (G2d). Single source of
+/// truth for the route AND the sweep's re-drive — the reason strings are
+/// live-observed CDP shapes (see reviews/reconciler-e2e-report.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettleFailureClass {
+    /// Money state NOT provably unconsumed (already-used shapes; on-chain
+    /// submit reverted). receipt_pending — chain reconciles; NEVER terminal.
+    AmbiguousMoney,
+    /// Payer's balance is short; nonce definitely unconsumed; clean 4xx.
+    InsufficientFunds,
+    /// Any other rejection: terminal failed.
+    CleanReject,
+}
+
+pub fn classify_settle_failure(reason: &str) -> SettleFailureClass {
+    match reason {
+        // 2026-08-19 live probe: 4xx {errorReason:"invalid_payload",
+        // transaction:<cdp's doomed replay tx>, errorMessage:"authorization
+        // nonce already submitted; transaction already on-chain"}
+        "invalid_payload" => SettleFailureClass::AmbiguousMoney,
+        // live probe shape (earlier session) and volley/mock shape
+        "settle_exact_failed_onchain" | "invalid_exact_evm_payload_signature" => {
+            SettleFailureClass::AmbiguousMoney
+        }
+        "insufficient_funds" => SettleFailureClass::InsufficientFunds,
+        _ => SettleFailureClass::CleanReject,
+    }
 }
 
 pub fn classify_consuming_log(topic0_hex: &str) -> Option<ConsumingLog> {
@@ -272,6 +309,29 @@ mod tests {
             classify_consuming_log(&format!("0x{}", "de".repeat(32))),
             None
         );
+    }
+
+    /// The failure matrix (G2d): every observed facilitator reason maps to
+    /// the spec'd class. Live-observed shapes are marked; unknown reasons
+    /// are clean rejects (fail open on meta only AFTER the money question
+    /// is unambiguous).
+    #[test]
+    fn settle_failure_matrix_is_total() {
+        use SettleFailureClass::*;
+        // ambiguous (money state not provably unconsumed)
+        for r in [
+            "invalid_payload",                             // live 2026-08-19 probe
+            "settle_exact_failed_onchain",                 // live probe (earlier)
+            "invalid_exact_evm_payload_signature",         // volley/mock
+        ] {
+            assert_eq!(classify_settle_failure(r), AmbiguousMoney, "{r}");
+        }
+        // clean payer-side reject
+        assert_eq!(classify_settle_failure("insufficient_funds"), InsufficientFunds);
+        // unknown => terminal clean reject, never ambiguous
+        for r in ["unexpected_settle_error", "expired_payload", "unknown_x", ""] {
+            assert_eq!(classify_settle_failure(r), CleanReject, "{r}");
+        }
     }
 
     /// The sweep's evidence assembly: every (state x event x validity) input

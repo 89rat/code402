@@ -47,8 +47,9 @@ fn transition_json(t: ClaimTransition) -> serde_json::Value {
         ClaimTransition::Settling => serde_json::json!({"kind": "settling"}),
         ClaimTransition::Settled => serde_json::json!({"kind": "settled"}),
         // RECONCILER-SPEC v1: chain-proved settlement with an owed execution
-        ClaimTransition::Entitled { tx_hash, network } => serde_json::json!({
+        ClaimTransition::Entitled { tx_hash, network, input_hash } => serde_json::json!({
             "kind": "entitled", "tx_hash": tx_hash, "network": network,
+            "input_hash": input_hash,
         }),
         ClaimTransition::SettledReconciled => serde_json::json!({"kind": "settled_reconciled"}),
     }
