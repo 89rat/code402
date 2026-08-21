@@ -22,3 +22,6 @@ OPERATING-CONTRACT.md
 intel/
 crawler/observations.db
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
