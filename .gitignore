@@ -15,3 +15,10 @@ tests/vectors/gen/node_modules/
 
 crawler/observations.db
 crawler/*.db
+
+# ── Never commit: internal strategy + crawl data (2026-08-22 leak purge) ──
+PROFIT.md
+OPERATING-CONTRACT.md
+intel/
+crawler/observations.db
+*.db
