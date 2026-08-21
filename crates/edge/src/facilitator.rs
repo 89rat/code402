@@ -62,13 +62,17 @@ impl CdpFacilitator {
         kp.copy_from_slice(&kp_raw);
         let sk = ed25519_dalek::SigningKey::from_keypair_bytes(&kp)
             .map_err(|e| Error::RustError(format!("cdp key: {e}")))?;
-        let now = Date::now().as_millis() / 1000;
-        // nonce: uniqueness only (the docs do not constrain its form)
-        let nonce = format!("n{now}-{}", &secret_b64[secret_b64.len().saturating_sub(8)..]);
+        let now_s = Date::now().as_millis() / 1000;
+        // M4 (wide-angle 2026-08-19): nonce uniqueness is per-REQUEST —
+        // second-resolution timestamps collide on same-second settles, and
+        // the secret tail was needless material in a header. Millis +
+        // monotonic counter; no secret-derived bytes.
+        let ctr = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nonce = format!("n{}-{ctr}", Date::now().as_millis());
         let header = serde_json::json!({"alg":"EdDSA","typ":"JWT","kid":key_id,"nonce":nonce});
         let claims = serde_json::json!({
             "sub": key_id, "iss": "cdp", "aud": ["cdp_service"],
-            "nbf": now, "exp": now + 120, "uri": uri,
+            "nbf": now_s, "exp": now_s + 120, "uri": uri,
         });
         let signing = format!(
             "{}.{}",
@@ -85,8 +89,17 @@ impl CdpFacilitator {
         req: &FacilitatorRequest,
     ) -> std::result::Result<T, worker::Error> {
         let url = format!("{}{}", self.base.trim_end_matches('/'), path);
-        let host = "api.cdp.coinbase.com";
-        let uri_claim = format!("POST {host}/platform{path}");
+        // M3 (wide-angle 2026-08-19): derive the JWT uri claim from the
+        // CONFIGURED base, not a hard-coded production host — a staging proxy
+        // or the self-hosted seam otherwise mints unmatchable JWTs on the
+        // money path.
+        let parsed = Url::parse(&self.base)
+            .map_err(|e| Error::RustError(format!("CDP_FACILITATOR_BASE parse: {e}")))?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| Error::RustError("CDP_FACILITATOR_BASE has no host".into()))?;
+        let base_path = parsed.path().trim_end_matches('/');
+        let uri_claim = format!("POST {host}{base_path}{path}");
         let jwt = self.mint_jwt(&uri_claim)?;
         let body = serde_json::to_string(req)
             .map_err(|e| Error::RustError(format!("facilitator encode: {e}")))?;

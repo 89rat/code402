@@ -1,5 +1,5 @@
-Contact: mailto:security@code402.dev
+Contact: mailto:ops@code402.dev
+Expires: 2027-12-31T23:59:59Z
 Preferred-Languages: en
 Canonical: https://code402.dev/.well-known/security.txt
-Policy: https://code402.dev/docs
-Expires: 2027-08-12T00:00:00Z
+Policy: https://code402.dev/proof

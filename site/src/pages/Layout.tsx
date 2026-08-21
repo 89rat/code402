@@ -2,10 +2,12 @@ import { Link, NavLink, Outlet } from 'react-router'
 import { Terminal } from 'lucide-react'
 
 const nav = [
-  { to: '/docs', label: 'Docs' },
+  { to: '/wall', label: 'The Wall' },
+  { to: '/check', label: 'x402check' },
+  { to: '/sept15', label: 'Sept 15' },
   { to: '/pricing', label: 'Pricing' },
-  { to: '/trust', label: 'Trust' },
-  { to: '/enterprise', label: 'Enterprise' },
+  { to: '/review', label: 'Review' },
+  { to: '/docs', label: 'Docs' },
   { to: '/proof', label: 'Proof' },
 ]
 

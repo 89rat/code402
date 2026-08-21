@@ -1,0 +1,217 @@
+# CODE402 — AI BUILD DIRECTIVE v1.0
+Domain: code402.dev · Entity: UK Ltd · Settlement: USDC on Base (chain 8453)
+
+## 0. OPERATING RULES FOR THE AI AGENT
+1. You are the senior engineer for Code402, a machine-to-machine (M2M) paid-API provider.
+2. Execute phases strictly in order. After each phase run its acceptance command; fix failures before proceeding.
+3. Do NOT add dependencies beyond those listed. Do NOT rename error codes or alter the payment state machine.
+4. Internal code/comments MAY and MUST use real stack names. Public artifacts (website copy, docs, README, meta tags, llms.txt) MUST obey the obfuscation rules in §9.
+5. Never write private keys or secrets to files. Use `wrangler secret`. Recipient wallet address comes from an env var.
+6. If a spec is ambiguous, choose the most conservative, deterministic implementation and record the decision in CHANGELOG.md.
+7. Report compiler/test errors verbatim. Never silently weaken or delete a test.
+
+## 1. PROJECT
+Autonomous agents discover tools via MCP/OpenAPI, pay per call via x402 (HTTP 402) using USDC on Base, receive deterministic output plus a signed cryptographic receipt. Success = an external agent can discover, pay, execute, and reconcile with zero human intervention.
+
+## 2. ARCHITECTURE (INTERNAL TRUTH)
+- Edge gateway: Cloudflare Workers (Rust → Wasm, `workers-rs`).
+- Nonce / idempotency: Durable Objects (strongly consistent).
+- Pricing / manifests: Workers KV.
+- Ledger: D1 (append-only discipline; only `status` may mutate).
+- Receipts / audit exports: R2.
+- Async settlement confirmation: Queues.
+- Treasury sweep + reconciliation: Cron Triggers.
+- Website: static SSG (Astro or Next.js) on Cloudflare Pages.
+- `crates/core` is platform-free: it must compile and pass tests with ZERO Cloudflare dependencies.
+
+## 3. REPOSITORY LAYOUT
+```
+code402/
+├── Cargo.toml                     # workspace: members core, edge
+├── crates/core/                   # portable business logic
+│   └── src/{lib.rs, payment/{mod,eip712,erc3009}.rs, validate/{mod,vat}.rs, receipt/mod.rs}
+├── crates/edge/                   # Cloudflare bindings only
+│   └── src/lib.rs
+├── migrations/                    # D1 schema
+├── wrangler.toml
+└── site/                          # public website (SSG)
+    ├── public/{llms.txt, .well-known/*}
+    └── src/...
+```
+
+## 4. PHASE 1 — m2m-core (IMPLEMENT EXACTLY)
+
+`Cargo.toml` (workspace):
+```toml
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/edge"]
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+[workspace.dependencies]
+alloy-primitives = "0.8"
+alloy-sol-types  = "0.8"
+k256             = { version = "0.13", features = ["ecdsa"] }
+serde            = { version = "1", features = ["derive"] }
+serde_json       = "1"
+thiserror        = "1"
+```
+
+`crates/core/Cargo.toml`: same deps via `.workspace = true`, plus `[dev-dependencies] hex="0.4"`.
+
+`crates/core/src/lib.rs`:
+```rust
+pub mod payment; pub mod validate; pub mod receipt;
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum PaymentError {
+    #[error("signature must be exactly 65 bytes (r||s||v)")] InvalidSignatureLength,
+    #[error("invalid recovery id: {0}")] InvalidRecoveryId(u8),
+    #[error("elliptic curve recovery failed")] RecoveryFailed,
+    #[error("recovered signer does not match declared payer")] SignerMismatch,
+    #[error("token address is not allowlisted")] UnsupportedToken,
+    #[error("chain id is not allowlisted")] UnsupportedChain,
+    #[error("recipient is not the corporate wallet")] InvalidRecipient,
+    #[error("amount is below the required price")] InsufficientAmount,
+    #[error("payment is outside its validity window")] OutsideValidityWindow,
+}
+```
+
+`crates/core/src/payment/eip712.rs`:
+```rust
+use alloy_primitives::{keccak256, Address, B256, U256};
+use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
+use crate::PaymentError;
+
+pub fn domain_separator(name:&str, version:&str, chain_id:u64, verifying_contract:Address) -> B256 {
+    let th = keccak256(b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    let mut b = Vec::with_capacity(2+32*5);
+    b.extend_from_slice(th.as_slice());
+    b.extend_from_slice(keccak256(name.as_bytes()).as_slice());
+    b.extend_from_slice(keccak256(version.as_bytes()).as_slice());
+    b.extend_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
+    b.extend_from_slice(&verifying_contract.into_word());
+    keccak256(&b)
+}
+pub fn signing_digest(ds:&B256, sh:&B256) -> B256 {
+    let mut b = Vec::with_capacity(66);
+    b.extend_from_slice(&[0x19,0x01]); b.extend_from_slice(ds.as_slice()); b.extend_from_slice(sh.as_slice());
+    keccak256(&b)
+}
+pub fn recover_address(digest:&B256, signature:&[u8]) -> Result<Address, PaymentError> {
+    if signature.len()!=65 { return Err(PaymentError::InvalidSignatureLength); }
+    let (sb,vb)=signature.split_at(64);
+    let sig=Signature::from_slice(sb).map_err(|_|PaymentError::RecoveryFailed)?;
+    let rid=match vb[0]{
+        r@(0|1)=>RecoveryId::try_from(r).map_err(|_|PaymentError::InvalidRecoveryId(r))?,
+        r@(27|28)=>RecoveryId::try_from(r-27).map_err(|_|PaymentError::InvalidRecoveryId(r))?,
+        o=>return Err(PaymentError::InvalidRecoveryId(o)),
+    };
+    let vk=VerifyingKey::recover_from_prehash(digest.as_slice(),&sig,rid).map_err(|_|PaymentError::RecoveryFailed)?;
+    let p=vk.to_encoded_point(false); let h=keccak256(&p.as_bytes()[1..]);
+    Ok(Address::from_slice(&h[12..]))
+}
+#[cfg(test)] mod tests { use super::*; use k256::ecdsa::SigningKey;
+  fn addr(sk:&SigningKey)->Address{let vk=VerifyingKey::from(sk);let p=vk.to_encoded_point(false);let h=keccak256(&p.as_bytes()[1..]);Address::from_slice(&h[12..])}
+  #[test] fn roundtrip(){let sk=SigningKey::from_bytes(&hex::decode("4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318").unwrap().into()).unwrap();
+    let d=keccak256(b"m2m finops test digest");let (s,r)=sk.sign_prehash_recoverable(d.as_slice()).unwrap();
+    let mut s65=[0u8;65];s65[..64].copy_from_slice(&s.to_bytes());s65[64]=r.to_byte();
+    assert_eq!(recover_address(&d,&s65).unwrap(),addr(&sk));}
+  #[test] fn bad_len(){let d=keccak256(b"x");assert_eq!(recover_address(&d,&[0u8;64]).unwrap_err(),crate::PaymentError::InvalidSignatureLength);}
+}
+```
+
+`crates/core/src/payment/erc3009.rs`:
+```rust
+use alloy_primitives::{keccak256, Address, B256, U256};
+use serde::{Deserialize, Serialize};
+use super::eip712; use crate::PaymentError;
+
+#[derive(Debug,Clone,Serialize,Deserialize)] pub struct TransferWithAuthorization{pub from:Address,pub to:Address,pub value:U256,pub valid_after:u64,pub valid_before:u64,pub nonce:B256}
+#[derive(Debug,Clone,Serialize,Deserialize)] pub struct PaymentVoucher{pub auth:TransferWithAuthorization,pub signature:Vec<u8>}
+pub struct VerifyContext{pub token_name:String,pub token_version:String,pub chain_id:u64,pub token_address:Address,pub expected_recipient:Address,pub required_amount:U256,pub now_unix:u64}
+const T:&str="TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)";
+fn struct_hash(a:&TransferWithAuthorization)->B256{let th=keccak256(T.as_bytes());let mut b=Vec::with_capacity(32*7);
+ b.extend_from_slice(th.as_slice());b.extend_from_slice(&a.from.into_word());b.extend_from_slice(&a.to.into_word());
+ b.extend_from_slice(&a.value.to_be_bytes::<32>());b.extend_from_slice(&U256::from(a.valid_after).to_be_bytes::<32>());
+ b.extend_from_slice(&U256::from(a.valid_before).to_be_bytes::<32>());b.extend_from_slice(a.nonce.as_slice());keccak256(&b)}
+pub fn verify(v:&PaymentVoucher,c:&VerifyContext)->Result<Address,PaymentError>{let a=&v.auth;
+ if a.to!=c.expected_recipient{return Err(PaymentError::InvalidRecipient);}
+ if a.value<c.required_amount{return Err(PaymentError::InsufficientAmount);}
+ if !(a.valid_after<=c.now_unix&&c.now_unix<=a.valid_before){return Err(PaymentError::OutsideValidityWindow);}
+ let d=eip712::domain_separator(&c.token_name,&c.token_version,c.chain_id,c.token_address);
+ let dg=eip712::signing_digest(&d,&struct_hash(a));
+ let s=eip712::recover_address(&dg,&v.signature)?;
+ if s!=a.from{return Err(PaymentError::SignerMismatch);} Ok(s)}
+```
+`payment/mod.rs`: `pub mod eip712; pub mod erc3009;`
+
+`crates/core/src/validate/vat.rs`: modulus-97 with standard AND alternative (+55) variants; accept either; `canonicalise_vat` strips "GB", keeps 9 digits, validates checksum. Include tests `rejects_wrong_digit_count`, `rejects_invalid_checksum`.
+`validate/mod.rs`: `pub mod vat;` + `validate_company_number_format` (8 chars alphanumeric; all-digit OR letter-prefix+digits).
+`receipt/mod.rs`: `Receipt{request_id,tool,tool_version,input_hash,output_hash,timestamp_unix}` with `input_hash`/`output_hash` = keccak256 of JSON, and `commitment()` = keccak256 of concatenated fields.
+
+**ACCEPTANCE 1:** `cargo test -p m2m-core` → all tests pass.
+
+## 5. PHASE 2 — m2m-edge (reference; adapt to current workers-rs API, keep invariants)
+
+`wrangler.toml`: bindings `PRICING`(KV), `LEDGER`(D1), `RECEIPTS`(R2), `NONCE_GUARD`(DO class `NonceGuard`), queue producer/consumer `settlement-confirm`, crons `["0 * * * *","0 2 * * *"]`, vars `CHAIN_ID="8453"`, `USDC_BASE=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`. Secrets (never in code): `COMPANY_WALLET`, `RECEIPT_SIGNING_KEY`, `RPC_PRIMARY`, `RPC_FALLBACK`.
+
+Payment state machine (invariants — do not reorder):
+1. Validate input schema FIRST (reject before cost).
+2. No credential → HTTP 402 with JSON `{x402_version, request_id, tool, price{amount,decimals,asset,token_address}, network{chain_id,name}, recipient, nonce, expires_at, status_url}`.
+3. Credential present → static checks (chain/token/recipient/amount/expiry) → EIP-712 recover → signer==payer.
+4. Claim nonce via `NonceGuard` DO; 409 if replayed.
+5. Execute deterministic tool (core crate).
+6. Append D1 event; sign receipt; store receipt in R2; enqueue settlement msg.
+7. Return 200 `{output, receipt}`.
+
+`NonceGuard` DO: on `/claim`, if key exists return 409 else put and return 200. Single-threaded = replay safety.
+Queue consumer: confirm tx via `RPC_PRIMARY` (fallback `RPC_FALLBACK`), update D1 `status` to SETTLED.
+Cron: hourly sweep-policy check; 02:00 daily accounting export to R2.
+
+Error taxonomy (HTTP mapping — do not change):
+PAYMENT_REQUIRED 402 · INVALID_SIGNATURE 401 · REPLAYED_NONCE 409 · INSUFFICIENT_PAYMENT 402 · EXPIRED_PAYMENT 402 · UNSUPPORTED_CHAIN 400 · UNSUPPORTED_TOKEN 400 · INVALID_RECIPIENT 400 · INPUT_SCHEMA_INVALID 400 · RATE_LIMITED 429 · TOOL_INTERNAL_ERROR 500.
+
+**ACCEPTANCE 2:** scripted flow in staging (Base Sepolia): unpaid→402; signed voucher→200+receipt; replayed nonce→409; underpayment→402.
+
+## 6. PHASE 3 — DATA & OPS
+D1 schema (append-only; only `status` mutable):
+```sql
+CREATE TABLE payment_events(event_id TEXT PRIMARY KEY, request_id TEXT NOT NULL, tool_id TEXT NOT NULL,
+ tool_version TEXT NOT NULL, payer TEXT, chain_id INTEGER, token TEXT, tx_hash TEXT, amount_minor INTEGER NOT NULL,
+ status TEXT NOT NULL, error_code TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE INDEX idx_events_request ON payment_events(request_id);
+CREATE TABLE receipts(request_id TEXT PRIMARY KEY, input_hash TEXT NOT NULL, output_hash TEXT NOT NULL,
+ signature TEXT NOT NULL, r2_key TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE idempotency(idem_key TEXT PRIMARY KEY, request_id TEXT NOT NULL, response_ref TEXT NOT NULL, created_at TEXT NOT NULL);
+```
+Environments: `staging` = Base Sepolia; `production` = Base mainnet. Separate wallets/keys/DBs per env.
+
+## 7. PHASE 4 — PUBLIC WEBSITE (site/)
+Stack: Astro or Next.js SSG + Tailwind + shadcn/Radix + lucide-react. Lighthouse ≥ 95.
+Design: dark terminal aesthetic. BG #09090B/#18181B · text #FAFAFA/#A1A1AA · accent cyan #06B6D4 · payment amber #F59E0B · borders #27272A. Headings Inter/Geist; code JetBrains Mono.
+Pages: Home, /docs, /pricing, /enterprise.
+Key copy (use verbatim):
+- H1: "The Settlement Layer for the Agentic Economy."
+- Sub: "Code402 provides deterministic, machine-verifiable APIs with native x402 (HTTP 402) payment support. Pay per call. Receive instant cryptographic receipts. Zero human intervention required."
+- Pillars: Native x402 & ACP Ready · Strict Determinism · Cryptographic Auditability.
+- Catalog: UK Entity Validator · VAT Modulus-97 Checker · Address Canonicalizer · (soon) PII Scrubber.
+- Pricing: Standard $0.005 USDC/call on Base; Enterprise committed-use credits.
+Home includes an animated terminal showing the 402→sign→200+receipt loop.
+Inject the JSON-LD `WebAPI` schema (priceCurrency USDC, price 0.005) in `<head>`.
+Footer lists machine endpoints: `/.well-known/mcp.json`, `/.well-known/openapi.yaml`, `/.well-known/x402.json`, `/llms.txt`, `/.well-known/security.txt`.
+
+## 8. PHASE 5 — MACHINE DISCOVERY FILES (site/public)
+`llms.txt`: plain-text summary: provider of paid deterministic APIs; x402 via USDC on Base; tools list; links to manifests.
+`.well-known/mcp.json`: MCP manifest with tool schemas, price, rate limits, auth type x402.
+`.well-known/x402.json`: payment routing (asset USDC, chain 8453, recipient from env at runtime).
+Docs page must publish the full Error Taxonomy table with an "Agent Resolution Strategy" per code.
+
+## 9. OBFUSCATION RULES (PUBLIC ARTIFACTS ONLY)
+NEVER mention in site/, docs, README, meta, llms.txt: Cloudflare, Workers, Durable Objects, KV, D1, R2, Rust, WebAssembly/Wasm, SQLite.
+APPROVED substitutes: "Globally Distributed Edge Network" · "Stateless Cryptographic Verification Engine" · "Append-Only Audit Ledger" · "Sub-Millisecond Edge Compute".
+Internal code and comments are EXEMPT (they must use real names).
+
+## 10. DEFINITION OF DONE
+[ ] cargo test green · [ ] staging 402/sign/replay flow passes · [ ] D1 append-only enforced · [ ] receipts in R2 · [ ] site Lighthouse ≥95 · [ ] llms.txt + .well-known live · [ ] no forbidden term appears in any public artifact (grep-verify) · [ ] secrets only via wrangler secret.

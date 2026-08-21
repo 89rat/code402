@@ -26,7 +26,7 @@ use serde::Deserialize;
 use worker::*;
 
 pub const STAMP_EXT_ID: &str = "code402.stamp";
-const EXPOSE: &str = "PAYMENT-REQUIRED, PAYMENT-SIGNATURE, PAYMENT-RESPONSE";
+const EXPOSE: &str = "PAYMENT-REQUIRED, PAYMENT-SIGNATURE, PAYMENT-RESPONSE, X-Schema-Version";
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -386,6 +386,30 @@ pub(crate) async fn claim_do(env: &Env, key: &str, cmd_json: serde_json::Value) 
     resp.json().await
 }
 
+/// M1 helper: per-payer per-minute cap on facilitator-bound PassThrough calls
+/// (limit 10/min). Fail CLOSED on any KV error — this guards quota, and a
+/// false rejection is a retryable 503, never a money error.
+async fn passthrough_rate_limited(env: &Env, payer: &str) -> bool {
+    let kv = match env.kv("PRICING") {
+        Ok(kv) => kv,
+        Err(_) => return true,
+    };
+    let bucket = Date::now().as_millis() / 60_000;
+    let k = format!("ops:pt:{payer}:{bucket}");
+    let n: u64 = match kv.get(&k).text().await {
+        Ok(Some(v)) => v.parse().unwrap_or(0),
+        Ok(None) => 0,
+        Err(_) => return true,
+    };
+    if n >= 10 {
+        return true;
+    }
+    if let Ok(p) = kv.put(&k, (n + 1).to_string()) {
+        let _ = p.expiration_ttl(120).execute().await;
+    }
+    false
+}
+
 pub(crate) async fn breaker_open(env: &Env) -> bool {
     match env.kv("PRICING") {
         // fail CLOSED on read failure (kill-switch design)
@@ -444,6 +468,19 @@ async fn settle_and_serve(
     // I5: fail closed on money
     if breaker_open(env).await {
         return v2_err(Taxonomy::UnexpectedVerifyError, 503, "facilitator circuit breaker open (fail closed); retryable");
+    }
+
+    // M1 (wide-angle 2026-08-19): PassThrough payments (EIP-6492/1271) are the
+    // ONLY path that spends facilitator quota on unverified input — an
+    // attacker can mint unlimited well-formed 6492 envelopes and burn the CDP
+    // tier until the breaker trips (a quota DoS that stops honest payments).
+    // Cap facilitator-bound calls per payer per minute BEFORE the facilitator
+    // seam (Rev 3 G4). KV counter, documented race (Z2): errs toward
+    // protection, never a money decision.
+    if !verified_locally
+        && passthrough_rate_limited(env, &payload.payload.authorization.from).await
+    {
+        return v2_err(Taxonomy::SettlementPending, 503, "facilitator-bound verification rate limited; retry shortly");
     }
 
     // facilitator selection (trait seam)
@@ -554,12 +591,26 @@ async fn settle_and_serve(
             let output = match execute_tool(tool, &body.input) {
                 Ok(o) => o,
                 Err(m) => {
-                    // money taken, tool failed: G2c — bounded free re-execution
-                    // window is handled by replay (stored failure) in Stage 4
-                    // hardening; record + report honestly
-                    let _ = claim_do(env, &key, serde_json::json!({"cmd": "failed", "key": key, "reason": "TOOL_INTERNAL_ERROR"})).await;
-                    let _ = d1_mark(env, &auth.from, &auth.nonce, "failed", None, Some("TOOL_INTERNAL_ERROR")).await;
-                    return v2_err(Taxonomy::UnexpectedVerifyError, 500, m);
+                    // B1 (wide-angle review 2026-08-19): the money already
+                    // moved — marking this claim `failed` would strand the
+                    // payer FOREVER (terminal status = invisible to the
+                    // reconciler's non-terminal sweep). Convert to the
+                    // entitlement path instead: claim → SettledReconciled is
+                    // legal from Settling; the payer's identical retry
+                    // executes FREE within 24h, bound to the original input
+                    // (G2c). Never a terminal loss after a successful settle.
+                    let until = now + m2m_core::payment::reconciler::REPLAY_TTL_SECS;
+                    let _ = claim_do(env, &key, serde_json::json!({
+                        "cmd": "reconcile_settled", "key": key,
+                        "tx": sr.transaction, "network": sr.network,
+                        "eligible_until": until,
+                    })).await;
+                    d1_mark_entitled(env, &auth.from, &auth.nonce, &sr.transaction, until).await;
+                    let _ = append_event(env, request_id, tool, Some(&sr.transaction), amount, "V2_SETTLED_EXEC_FAILED", None).await;
+                    return v2_err(Taxonomy::SettlementPending, 503, &format!(
+                        "settled (tx {}) but execution failed: {m}; an identical retry within 24h executes free — no new payment",
+                        sr.transaction
+                    ));
                 }
             };
             let pr_b64 = encode_settle_response(&sr)
@@ -718,6 +769,31 @@ async fn d1_mark(env: &Env, payer: &str, nonce: &str, status: &str, tx: Option<&
         failure.map(JsValue::from_str).unwrap_or(JsValue::NULL),
     ])?.run().await?;
     Ok(())
+}
+
+/// B1: post-settle execution failure — record the entitlement
+/// (settled_reconciled, 24h window) so the claim machine's Entitled path and
+/// the d1_entitled() stamp-age bypass both see it. Guarded by the same
+/// absorbing predicate: a terminal row is never overwritten.
+async fn d1_mark_entitled(env: &Env, payer: &str, nonce: &str, tx: &str, until: u64) {
+    if let Ok(db) = env.d1("LEDGER") {
+        let _ = async {
+            use worker::wasm_bindgen::JsValue;
+            db.prepare(
+                "UPDATE settlements SET status='settled_reconciled', tx_hash=?3, resolution='facilitator', resolution_tx=?3, resolved_at=CAST(strftime('%s','now') AS INTEGER), replay_eligible_until=?4, settled_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE payer=?1 AND nonce=?2 AND status IN ('claimed','settling','receipt_pending','settlement_pending')",
+            )
+            .bind(&[
+                JsValue::from_str(payer),
+                JsValue::from_str(nonce),
+                JsValue::from_str(tx),
+                JsValue::from_f64(until as f64),
+            ])?
+            .run()
+            .await?;
+            Ok::<(), Error>(())
+        }
+        .await;
+    }
 }
 
 /// Settle-success record: bridge-ensure (safety net if the claim-time write

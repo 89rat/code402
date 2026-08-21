@@ -52,7 +52,14 @@ pub async fn sweep(env: &Env) -> Result<SweepStats> {
     let db = env.d1("LEDGER")?;
     let rpc = env.secret("RPC_PRIMARY")?.to_string();
     let token = env.var("USDC_BASE")?.to_string().to_lowercase();
-    let chain_id: u64 = env.var("CHAIN_ID")?.to_string().parse().unwrap_or(84532);
+    // M6 (wide-angle 2026-08-19): fail CLOSED like the route (red-team
+    // Break 4) — a silent Sepolia default would make the reconciler mark live
+    // mainnet claims expired/absent.
+    let chain_id: u64 = env
+        .var("CHAIN_ID")?
+        .to_string()
+        .parse()
+        .map_err(|_| Error::RustError("CHAIN_ID var invalid — reconciler fails closed".into()))?;
     let network = format!("eip155:{chain_id}");
     let now = ((Date::now().as_millis() / 1000) as u64).max(1);
     let latest = block_number(&rpc).await?;

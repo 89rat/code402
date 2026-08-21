@@ -1,7 +1,7 @@
 {
   "version": 1,
   "note": "External seed endpoints discovered via the Coinbase CDP x402 discovery catalog. Unpaid probes only. Catalog quotes are already in observations.db (http_status=0); live probing measures catalog-vs-live drift.",
-  "generated_at": "2026-08-19T01:17:05+00:00",
+  "generated_at": "2026-08-21T01:17:01+00:00",
   "endpoints": [
     {
       "id": "ext:https://api.onesource.io/api/chain/erc20-balance",
@@ -46,15 +46,15 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.onesource.io/api/chain/block/:number",
-      "url": "https://api.onesource.io/api/chain/block/:number",
+      "id": "ext:https://api.onesource.io/api/chain/nft-metadata",
+      "url": "https://api.onesource.io/api/chain/nft-metadata",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.onesource.io/api/chain/nft-metadata",
-      "url": "https://api.onesource.io/api/chain/nft-metadata",
+      "id": "ext:https://api.onesource.io/api/chain/block/:number",
+      "url": "https://api.onesource.io/api/chain/block/:number",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -67,15 +67,15 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.onesource.io/api/chain/contract/:address",
-      "url": "https://api.onesource.io/api/chain/contract/:address",
+      "id": "ext:https://api.onesource.io/api/chain/erc721-tokens",
+      "url": "https://api.onesource.io/api/chain/erc721-tokens",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.onesource.io/api/chain/erc721-tokens",
-      "url": "https://api.onesource.io/api/chain/erc721-tokens",
+      "id": "ext:https://api.onesource.io/api/chain/contract/:address",
+      "url": "https://api.onesource.io/api/chain/contract/:address",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -130,13 +130,6 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.onesource.io/api/chain/erc1155-balance",
-      "url": "https://api.onesource.io/api/chain/erc1155-balance",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
       "id": "ext:https://api.onesource.io/api/chain/chain-id",
       "url": "https://api.onesource.io/api/chain/chain-id",
       "method": "GET",
@@ -144,8 +137,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.onesource.io/api/chain/code/:address",
-      "url": "https://api.onesource.io/api/chain/code/:address",
+      "id": "ext:https://api.onesource.io/api/chain/erc1155-balance",
+      "url": "https://api.onesource.io/api/chain/erc1155-balance",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -153,6 +146,13 @@
     {
       "id": "ext:https://api.onesource.io/api/chain/allowance",
       "url": "https://api.onesource.io/api/chain/allowance",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://api.onesource.io/api/chain/code/:address",
+      "url": "https://api.onesource.io/api/chain/code/:address",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -200,16 +200,16 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.onesource.io/api/chain/storage",
-      "url": "https://api.onesource.io/api/chain/storage",
-      "method": "GET",
+      "id": "ext:https://stableenrich.dev/api/exa/search",
+      "url": "https://stableenrich.dev/api/exa/search",
+      "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://stableenrich.dev/api/exa/search",
-      "url": "https://stableenrich.dev/api/exa/search",
-      "method": "POST",
+      "id": "ext:https://api.onesource.io/api/chain/storage",
+      "url": "https://api.onesource.io/api/chain/storage",
+      "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -223,6 +223,13 @@
     {
       "id": "ext:https://x402.ottoai.services/hyperliquid-market",
       "url": "https://x402.ottoai.services/hyperliquid-market",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://randomfactsx402.vercel.app/api/random-fact",
+      "url": "https://randomfactsx402.vercel.app/api/random-fact",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -242,8 +249,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://randomfactsx402.vercel.app/api/random-fact",
-      "url": "https://randomfactsx402.vercel.app/api/random-fact",
+      "id": "ext:https://dicex402.vercel.app/api/dice",
+      "url": "https://dicex402.vercel.app/api/dice",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -251,13 +258,6 @@
     {
       "id": "ext:https://riddlex402.vercel.app/api/riddle",
       "url": "https://riddlex402.vercel.app/api/riddle",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://dicex402.vercel.app/api/dice",
-      "url": "https://dicex402.vercel.app/api/dice",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -284,6 +284,13 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
+      "id": "ext:https://agi.apify.com/protocols/x402/prepaid-tokens",
+      "url": "https://agi.apify.com/protocols/x402/prepaid-tokens",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
       "id": "ext:https://horrorstoryapi.vercel.app/api/horror-story",
       "url": "https://horrorstoryapi.vercel.app/api/horror-story",
       "method": "GET",
@@ -305,29 +312,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://402timezones.vercel.app/api/convert-timezone",
-      "url": "https://402timezones.vercel.app/api/convert-timezone",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
       "id": "ext:https://weight402endpoint.vercel.app/api/convert-weight",
       "url": "https://weight402endpoint.vercel.app/api/convert-weight",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://agi.apify.com/protocols/x402/prepaid-tokens",
-      "url": "https://agi.apify.com/protocols/x402/prepaid-tokens",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://x402.ottoai.services/funding-rates",
-      "url": "https://x402.ottoai.services/funding-rates",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -340,9 +326,16 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://stableenrich.dev/api/pdl/people-enrich",
-      "url": "https://stableenrich.dev/api/pdl/people-enrich",
-      "method": "POST",
+      "id": "ext:https://402timezones.vercel.app/api/convert-timezone",
+      "url": "https://402timezones.vercel.app/api/convert-timezone",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://x402.ottoai.services/funding-rates",
+      "url": "https://x402.ottoai.services/funding-rates",
+      "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -354,22 +347,15 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.loyalspark.online/x402-gateway/recipient-api/balance",
-      "url": "https://api.loyalspark.online/x402-gateway/recipient-api/balance",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://cheaptokens.ai/api/buy",
-      "url": "https://cheaptokens.ai/api/buy",
+      "id": "ext:https://stableenrich.dev/api/pdl/people-enrich",
+      "url": "https://stableenrich.dev/api/pdl/people-enrich",
       "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://vibesprings.net/api/price/base-gas",
-      "url": "https://vibesprings.net/api/price/base-gas",
+      "id": "ext:https://api.loyalspark.online/x402-gateway/recipient-api/balance",
+      "url": "https://api.loyalspark.online/x402-gateway/recipient-api/balance",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -382,6 +368,13 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
+      "id": "ext:https://vibesprings.net/api/price/base-gas",
+      "url": "https://vibesprings.net/api/price/base-gas",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
       "id": "ext:https://x402.ottoai.services/token-details",
       "url": "https://x402.ottoai.services/token-details",
       "method": "GET",
@@ -389,15 +382,22 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.loyalspark.online/x402-gateway/recipient-api/workflow/reward-status",
-      "url": "https://api.loyalspark.online/x402-gateway/recipient-api/workflow/reward-status",
+      "id": "ext:https://api.bitrefill.com/x402/gift-cards/search",
+      "url": "https://api.bitrefill.com/x402/gift-cards/search",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://x402.twit.sh/tweets/search",
-      "url": "https://x402.twit.sh/tweets/search",
+      "id": "ext:https://cheaptokens.ai/api/buy",
+      "url": "https://cheaptokens.ai/api/buy",
+      "method": "POST",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://api.loyalspark.online/x402-gateway/recipient-api/workflow/reward-status",
+      "url": "https://api.loyalspark.online/x402-gateway/recipient-api/workflow/reward-status",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -410,8 +410,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://laso.finance/get-card",
-      "url": "https://laso.finance/get-card",
+      "id": "ext:https://x402.twit.sh/tweets/search",
+      "url": "https://x402.twit.sh/tweets/search",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -424,8 +424,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.bitrefill.com/x402/gift-cards/search",
-      "url": "https://api.bitrefill.com/x402/gift-cards/search",
+      "id": "ext:https://laso.finance/get-card",
+      "url": "https://laso.finance/get-card",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -508,9 +508,9 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://x402.creative-tim.com/shadcn-blocks/user-payment",
-      "url": "https://x402.creative-tim.com/shadcn-blocks/user-payment",
-      "method": "GET",
+      "id": "ext:https://stableupload.dev/api/site",
+      "url": "https://stableupload.dev/api/site",
+      "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -524,6 +524,20 @@
     {
       "id": "ext:https://x402.ottoai.services/weather",
       "url": "https://x402.ottoai.services/weather",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://api.exa.ai/contents",
+      "url": "https://api.exa.ai/contents",
+      "method": "POST",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://vibesprings.net/api/price/btc-usd",
+      "url": "https://vibesprings.net/api/price/btc-usd",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -543,15 +557,15 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://stableupload.dev/api/site",
-      "url": "https://stableupload.dev/api/site",
-      "method": "POST",
+      "id": "ext:https://crypto.apitoll.cloud/v1/crypto/global",
+      "url": "https://crypto.apitoll.cloud/v1/crypto/global",
+      "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.exa.ai/contents",
-      "url": "https://api.exa.ai/contents",
+      "id": "ext:https://vaaya.ai/api/run/exa/search",
+      "url": "https://vaaya.ai/api/run/exa/search",
       "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -564,8 +578,36 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://crypto.apitoll.cloud/v1/crypto/global",
-      "url": "https://crypto.apitoll.cloud/v1/crypto/global",
+      "id": "ext:https://edgar.apitoll.cloud/v1/edgar/filings",
+      "url": "https://edgar.apitoll.cloud/v1/edgar/filings",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://stableenrich.dev/api/clado/contacts-enrich",
+      "url": "https://stableenrich.dev/api/clado/contacts-enrich",
+      "method": "POST",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://x402.ottoai.services/twitter-summary",
+      "url": "https://x402.ottoai.services/twitter-summary",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://chat.gedx402.com/v1/chat/completions",
+      "url": "https://chat.gedx402.com/v1/chat/completions",
+      "method": "POST",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://api.printmoneylab.com/api/v1/kr-prices",
+      "url": "https://api.printmoneylab.com/api/v1/kr-prices",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -585,65 +627,9 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://vaaya.ai/api/run/exa/search",
-      "url": "https://vaaya.ai/api/run/exa/search",
-      "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://edgar.apitoll.cloud/v1/edgar/filings",
-      "url": "https://edgar.apitoll.cloud/v1/edgar/filings",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://vibesprings.net/api/price/btc-usd",
-      "url": "https://vibesprings.net/api/price/btc-usd",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://api.printmoneylab.com/api/v1/kr-prices",
-      "url": "https://api.printmoneylab.com/api/v1/kr-prices",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://x402.ottoai.services/twitter-summary",
-      "url": "https://x402.ottoai.services/twitter-summary",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://stableenrich.dev/api/clado/contacts-enrich",
-      "url": "https://stableenrich.dev/api/clado/contacts-enrich",
-      "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
       "id": "ext:https://stableenrich.dev/api/firecrawl/search",
       "url": "https://stableenrich.dev/api/firecrawl/search",
       "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://chat.gedx402.com/v1/chat/completions",
-      "url": "https://chat.gedx402.com/v1/chat/completions",
-      "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://x402.twit.sh/tweets/user",
-      "url": "https://x402.twit.sh/tweets/user",
-      "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -655,15 +641,22 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://stablestudio.dev/api/upload",
-      "url": "https://stablestudio.dev/api/upload",
-      "method": "POST",
+      "id": "ext:https://laso.finance/auth",
+      "url": "https://laso.finance/auth",
+      "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
       "id": "ext:https://google-trends.use.x402atlas.com/trend",
       "url": "https://google-trends.use.x402atlas.com/trend",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://x402.twit.sh/tweets/user",
+      "url": "https://x402.twit.sh/tweets/user",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -676,15 +669,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://x402.twit.sh/users/by/username",
-      "url": "https://x402.twit.sh/users/by/username",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://laso.finance/auth",
-      "url": "https://laso.finance/auth",
+      "id": "ext:https://x402.ottoai.services/kol-sentiment",
+      "url": "https://x402.ottoai.services/kol-sentiment",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -697,16 +683,9 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://x402.ottoai.services/kol-sentiment",
-      "url": "https://x402.ottoai.services/kol-sentiment",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://gas.apitoll.cloud/v1/base/gas",
-      "url": "https://gas.apitoll.cloud/v1/base/gas",
-      "method": "GET",
+      "id": "ext:https://stablestudio.dev/api/upload",
+      "url": "https://stablestudio.dev/api/upload",
+      "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -720,6 +699,20 @@
     {
       "id": "ext:https://blockrun.ai/api/v1/pm/polymarket/markets",
       "url": "https://blockrun.ai/api/v1/pm/polymarket/markets",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://gas.apitoll.cloud/v1/base/gas",
+      "url": "https://gas.apitoll.cloud/v1/base/gas",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://x402.twit.sh/users/by/username",
+      "url": "https://x402.twit.sh/users/by/username",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -746,13 +739,6 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://stabletravel.dev/api/google-flights/search",
-      "url": "https://stabletravel.dev/api/google-flights/search",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
       "id": "ext:https://api.loyalspark.online/x402-gateway/rewards",
       "url": "https://api.loyalspark.online/x402-gateway/rewards",
       "method": "GET",
@@ -762,20 +748,6 @@
     {
       "id": "ext:https://api.justaname.id/ens/v2/resolve",
       "url": "https://api.justaname.id/ens/v2/resolve",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://tick.hugen.tokyo/tick/symbols",
-      "url": "https://tick.hugen.tokyo/tick/symbols",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://api.loyalspark.online/x402-gateway/offers",
-      "url": "https://api.loyalspark.online/x402-gateway/offers",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -795,8 +767,29 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://kronossignals.com/api/v1/forecast/btc",
-      "url": "https://kronossignals.com/api/v1/forecast/btc",
+      "id": "ext:https://api.loyalspark.online/x402-gateway/offers",
+      "url": "https://api.loyalspark.online/x402-gateway/offers",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://stabletravel.dev/api/google-flights/search",
+      "url": "https://stabletravel.dev/api/google-flights/search",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://tick.hugen.tokyo/tick/symbols",
+      "url": "https://tick.hugen.tokyo/tick/symbols",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://api.loyalspark.online/x402-gateway/programs",
+      "url": "https://api.loyalspark.online/x402-gateway/programs",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -830,8 +823,15 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.loyalspark.online/x402-gateway/programs",
-      "url": "https://api.loyalspark.online/x402-gateway/programs",
+      "id": "ext:https://news.apitoll.cloud/v1/cointelegraph/news",
+      "url": "https://news.apitoll.cloud/v1/cointelegraph/news",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://kronossignals.com/api/v1/forecast/btc",
+      "url": "https://kronossignals.com/api/v1/forecast/btc",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -844,8 +844,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://news.apitoll.cloud/v1/cointelegraph/news",
-      "url": "https://news.apitoll.cloud/v1/cointelegraph/news",
+      "id": "ext:https://laso.finance/order-gift-card",
+      "url": "https://laso.finance/order-gift-card",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -872,8 +872,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://laso.finance/order-gift-card",
-      "url": "https://laso.finance/order-gift-card",
+      "id": "ext:https://vibesprings.net/api/exchange/convert",
+      "url": "https://vibesprings.net/api/exchange/convert",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -921,16 +921,9 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://x402.ottoai.services/tweet-search",
-      "url": "https://x402.ottoai.services/tweet-search",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://readx.sh/api/search/tweets",
-      "url": "https://readx.sh/api/search/tweets",
-      "method": "GET",
+      "id": "ext:https://glim.sh/api/v1/amazon/search",
+      "url": "https://glim.sh/api/v1/amazon/search",
+      "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -942,8 +935,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://blockrun.ai/api/v1/exa/answer",
-      "url": "https://blockrun.ai/api/v1/exa/answer",
+      "id": "ext:https://stableenrich.dev/api/reddit/search",
+      "url": "https://stableenrich.dev/api/reddit/search",
       "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -956,8 +949,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.x402dataapi.com/v1/agent-accessibility",
-      "url": "https://api.x402dataapi.com/v1/agent-accessibility",
+      "id": "ext:https://blockrun.ai/api/v1/exa/answer",
+      "url": "https://blockrun.ai/api/v1/exa/answer",
       "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -977,15 +970,15 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://glim.sh/api/v1/amazon/search",
-      "url": "https://glim.sh/api/v1/amazon/search",
+      "id": "ext:https://api.x402dataapi.com/v1/agent-accessibility",
+      "url": "https://api.x402dataapi.com/v1/agent-accessibility",
       "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://vibesprings.net/api/exchange/convert",
-      "url": "https://vibesprings.net/api/exchange/convert",
+      "id": "ext:https://api.bitrefill.com/x402/products/detail",
+      "url": "https://api.bitrefill.com/x402/products/detail",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -998,30 +991,9 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://stableenrich.dev/api/reddit/search",
-      "url": "https://stableenrich.dev/api/reddit/search",
-      "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://store.agentexchange.work/crypto/prices",
-      "url": "https://store.agentexchange.work/crypto/prices",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
       "id": "ext:https://google-trends.use.x402atlas.com/related-queries",
       "url": "https://google-trends.use.x402atlas.com/related-queries",
       "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://stableenrich.dev/api/fullenrich/company-search",
-      "url": "https://stableenrich.dev/api/fullenrich/company-search",
-      "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -1047,8 +1019,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://x402.ottoai.services/yield-alpha",
-      "url": "https://x402.ottoai.services/yield-alpha",
+      "id": "ext:https://x402.ottoai.services/tweet-search",
+      "url": "https://x402.ottoai.services/tweet-search",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -1056,13 +1028,6 @@
     {
       "id": "ext:https://api.aidress.ai/pay/agent_ottoai_crypto_news",
       "url": "https://api.aidress.ai/pay/agent_ottoai_crypto_news",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://api.bitrefill.com/x402/products/detail",
-      "url": "https://api.bitrefill.com/x402/products/detail",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -1082,15 +1047,22 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://blockrun.ai/api/v1/pm/kalshi/markets",
-      "url": "https://blockrun.ai/api/v1/pm/kalshi/markets",
+      "id": "ext:https://gridpulse.theaslangroupllc.com/api/energy/carbon-intensity",
+      "url": "https://gridpulse.theaslangroupllc.com/api/energy/carbon-intensity",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://crypto.apitoll.cloud/v1/crypto/sentiment",
-      "url": "https://crypto.apitoll.cloud/v1/crypto/sentiment",
+      "id": "ext:https://store.agentexchange.work/crypto/prices",
+      "url": "https://store.agentexchange.work/crypto/prices",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://x402.ottoai.services/yield-alpha",
+      "url": "https://x402.ottoai.services/yield-alpha",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -1103,9 +1075,44 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
+      "id": "ext:https://crypto.apitoll.cloud/v1/crypto/sentiment",
+      "url": "https://crypto.apitoll.cloud/v1/crypto/sentiment",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://blockrun.ai/api/v1/pm/kalshi/markets",
+      "url": "https://blockrun.ai/api/v1/pm/kalshi/markets",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
       "id": "ext:https://rpc.nodeflare.app/base/x402",
       "url": "https://rpc.nodeflare.app/base/x402",
       "method": "POST",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://sandbox.node4all.com/v1/x402-test",
+      "url": "https://sandbox.node4all.com/v1/x402-test",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://voidfeed.ai/v1/content/extract/dataset/latest",
+      "url": "https://voidfeed.ai/v1/content/extract/dataset/latest",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://readx.sh/api/search/tweets",
+      "url": "https://readx.sh/api/search/tweets",
+      "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -1117,8 +1124,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://omniterminal.app/api/x402/v1/news",
-      "url": "https://omniterminal.app/api/x402/v1/news",
+      "id": "ext:https://api.loyalspark.online/x402-gateway/analytics",
+      "url": "https://api.loyalspark.online/x402-gateway/analytics",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -1131,6 +1138,13 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
+      "id": "ext:https://x402.fuchss.app/v1/x402-trust",
+      "url": "https://x402.fuchss.app/v1/x402-trust",
+      "method": "POST",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
       "id": "ext:https://stableenrich.dev/api/whitepages/person-search",
       "url": "https://stableenrich.dev/api/whitepages/person-search",
       "method": "POST",
@@ -1138,37 +1152,16 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://www.getbags.app/api/v1",
-      "url": "https://www.getbags.app/api/v1",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://vibesprings.net/api/price/eth-usd",
-      "url": "https://vibesprings.net/api/price/eth-usd",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://glim.sh/api/v1/twitter/users/:ref/tweets",
-      "url": "https://glim.sh/api/v1/twitter/users/:ref/tweets",
+      "id": "ext:https://api.arkm.com/x402/intelligence/address",
+      "url": "https://api.arkm.com/x402/intelligence/address",
       "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.loyalspark.online/x402-gateway/analytics",
-      "url": "https://api.loyalspark.online/x402-gateway/analytics",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://x402.ottoai.services/token-price",
-      "url": "https://x402.ottoai.services/token-price",
-      "method": "GET",
+      "id": "ext:https://stableenrich.dev/api/fullenrich/company-search",
+      "url": "https://stableenrich.dev/api/fullenrich/company-search",
+      "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -1180,8 +1173,22 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://voidfeed.ai/v1/content/fact-feed/latest",
-      "url": "https://voidfeed.ai/v1/content/fact-feed/latest",
+      "id": "ext:https://glim.sh/api/v1/twitter/users/:ref/tweets",
+      "url": "https://glim.sh/api/v1/twitter/users/:ref/tweets",
+      "method": "POST",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://websearch.use.x402atlas.com/extract",
+      "url": "https://websearch.use.x402atlas.com/extract",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://www.getbags.app/api/v1",
+      "url": "https://www.getbags.app/api/v1",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -1194,8 +1201,15 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://websearch.use.x402atlas.com/extract",
-      "url": "https://websearch.use.x402atlas.com/extract",
+      "id": "ext:https://x402.ottoai.services/pm-crypto",
+      "url": "https://x402.ottoai.services/pm-crypto",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://x402.ottoai.services/token-price",
+      "url": "https://x402.ottoai.services/token-price",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -1208,9 +1222,9 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://2s.io/api/geocode/address",
-      "url": "https://2s.io/api/geocode/address",
-      "method": "GET",
+      "id": "ext:https://api.bitrefill.com/x402/invoice/create",
+      "url": "https://api.bitrefill.com/x402/invoice/create",
+      "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -1222,9 +1236,9 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://kronossignals.com/api/v1/alerts/btc",
-      "url": "https://kronossignals.com/api/v1/alerts/btc",
-      "method": "GET",
+      "id": "ext:https://proxy.aproxpay.com/v1/session",
+      "url": "https://proxy.aproxpay.com/v1/session",
+      "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -1243,13 +1257,6 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://proxy.aproxpay.com/v1/session",
-      "url": "https://proxy.aproxpay.com/v1/session",
-      "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
       "id": "ext:https://www.x402scan.com/api/x402/merchants",
       "url": "https://www.x402scan.com/api/x402/merchants",
       "method": "GET",
@@ -1257,64 +1264,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://voidfeed.ai/v1/content/extract/dataset/latest",
-      "url": "https://voidfeed.ai/v1/content/extract/dataset/latest",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://cpi-report-us.underscoredone.com/cpi",
-      "url": "https://cpi-report-us.underscoredone.com/cpi",
-      "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
       "id": "ext:https://proxy.aproxpay.com/v1/proxy",
       "url": "https://proxy.aproxpay.com/v1/proxy",
-      "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://kronossignals.com/api/v1/options-iv/btc",
-      "url": "https://kronossignals.com/api/v1/options-iv/btc",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://stableenrich.dev/api/companyenrich/properties-enrich",
-      "url": "https://stableenrich.dev/api/companyenrich/properties-enrich",
-      "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://api.arkm.com/x402/intelligence/address",
-      "url": "https://api.arkm.com/x402/intelligence/address",
-      "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://x402.devvizion.com/v0/outline",
-      "url": "https://x402.devvizion.com/v0/outline",
-      "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://api.anchor-x402.com/v1/price/token",
-      "url": "https://api.anchor-x402.com/v1/price/token",
-      "method": "POST",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://x402.fuchss.app/v1/x402-trust",
-      "url": "https://x402.fuchss.app/v1/x402-trust",
       "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -1327,6 +1278,27 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
+      "id": "ext:https://2s.io/api/geocode/address",
+      "url": "https://2s.io/api/geocode/address",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://cpi-report-us.underscoredone.com/cpi",
+      "url": "https://cpi-report-us.underscoredone.com/cpi",
+      "method": "POST",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://mcp.deep3.ai/tools/wave-1",
+      "url": "https://mcp.deep3.ai/tools/wave-1",
+      "method": "POST",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
       "id": "ext:https://tools.ipintel.ai/dns-lookup",
       "url": "https://tools.ipintel.ai/dns-lookup",
       "method": "POST",
@@ -1334,29 +1306,29 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://readx.sh/api/tweets/:id/replies",
-      "url": "https://readx.sh/api/tweets/:id/replies",
+      "id": "ext:https://glim.sh/api/v1/youtube/get",
+      "url": "https://glim.sh/api/v1/youtube/get",
+      "method": "POST",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://api.hyperextend.xyz/v1/candles/BTC/1m/latest",
+      "url": "https://api.hyperextend.xyz/v1/candles/BTC/1m/latest",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://x402.ottoai.services/pm-crypto",
-      "url": "https://x402.ottoai.services/pm-crypto",
+      "id": "ext:https://minifetch.com/api/v1/x402/preflight/url-check",
+      "url": "https://minifetch.com/api/v1/x402/preflight/url-check",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://entityresolver.xyz/resolve",
-      "url": "https://entityresolver.xyz/resolve",
-      "method": "GET",
-      "operator": "external",
-      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
-    },
-    {
-      "id": "ext:https://sandbox.node4all.com/v1/x402-test",
-      "url": "https://sandbox.node4all.com/v1/x402-test",
+      "id": "ext:https://vibesprings.net/api/price/eth-usd",
+      "url": "https://vibesprings.net/api/price/eth-usd",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -1369,9 +1341,23 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://api.hyperextend.xyz/v1/candles/BTC/1m/latest",
-      "url": "https://api.hyperextend.xyz/v1/candles/BTC/1m/latest",
+      "id": "ext:https://voidfeed.ai/v1/content/fact-feed/latest",
+      "url": "https://voidfeed.ai/v1/content/fact-feed/latest",
       "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://entityresolver.xyz/resolve",
+      "url": "https://entityresolver.xyz/resolve",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://stableenrich.dev/api/companyenrich/properties-enrich",
+      "url": "https://stableenrich.dev/api/companyenrich/properties-enrich",
+      "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
@@ -1390,8 +1376,8 @@
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
     },
     {
-      "id": "ext:https://mcp.deep3.ai/tools/wave-1",
-      "url": "https://mcp.deep3.ai/tools/wave-1",
+      "id": "ext:https://api.run402.com/tiers/v1/prototype",
+      "url": "https://api.run402.com/tiers/v1/prototype",
       "method": "POST",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -1399,6 +1385,20 @@
     {
       "id": "ext:https://crypto.apitoll.cloud/v1/crypto/yields",
       "url": "https://crypto.apitoll.cloud/v1/crypto/yields",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://edgar.apitoll.cloud/v1/edgar/insider",
+      "url": "https://edgar.apitoll.cloud/v1/edgar/insider",
+      "method": "GET",
+      "operator": "external",
+      "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
+    },
+    {
+      "id": "ext:https://dns.use.x402atlas.com/a",
+      "url": "https://dns.use.x402atlas.com/a",
       "method": "GET",
       "operator": "external",
       "source_url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"

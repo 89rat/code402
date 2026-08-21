@@ -1,0 +1,13 @@
+{
+  "name": "x402check",
+  "version": "0.1.0",
+  "description": "Can an autonomous agent actually pay this endpoint? Zero-dependency x402 conformance checker with spec-cited findings.",
+  "type": "module",
+  "main": "index.js",
+  "bin": { "x402check": "cli.js" },
+  "exports": { ".": "./index.js" },
+  "scripts": { "test": "node test.js" },
+  "license": "Apache-2.0",
+  "keywords": ["x402", "http-402", "agentic-commerce", "conformance", "usdc", "base"],
+  "engines": { "node": ">=18" }
+}

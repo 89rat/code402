@@ -1,105 +1,49 @@
 openapi: 3.1.0
 info:
-  title: code402 Deterministic Tools API
-  version: 1.0.0
-  description: >-
-    Pay-per-call deterministic tools for autonomous agents, settled via x402
-    (HTTP 402) in USDC. Call unpaid to receive a 402 challenge; pay via an
-    EIP-3009 TransferWithAuthorization; retry with the X-PAYMENT header to
-    receive the deterministic output plus a signed secp256k1 receipt binding
-    input hash, output hash, tool version, and timestamp. All tools are
-    strictly deterministic: identical input yields byte-identical output per
-    tool version. Response schemas are frozen per X-Schema-Version; breaking
-    changes ship only under a new schema version.
-  x-environment: production (Base mainnet, chain 8453, USDC)
+  title: code402 paid tools API
+  version: "1.1"
+  description: >
+    Machine-payable deterministic tools. POST without payment credentials returns
+    402 with price, chain, recipient and EIP-712 domain. Retry with the signed
+    EIP-3009 authorization to receive the output plus a signed XDR-1 receipt.
 servers:
   - url: https://code402.dev
-    description: production (Base mainnet, USDC)
-  - url: https://code402-edge.akrivis.workers.dev
-    description: staging (Base Sepolia, test USDC)
 paths:
   /v1/tools/{tool}/call:
     post:
-      summary: Pay-per-call deterministic tool execution
-      description: >-
-        Executes a deterministic, machine-verifiable tool. Without payment,
-        returns a 402 challenge containing price, recipient, nonce, and expiry.
-        With a valid X-PAYMENT voucher, returns the tool output and a signed
-        receipt. Pass idempotency_key to make retries safe: a repeated key
-        returns idempotent_replay:true with the original receipt reference and
-        is never double-charged.
-      parameters:
-        - name: tool
-          in: path
-          required: true
-          description: Tool identifier.
-          schema:
-            type: string
-            enum: [vat-mod97-check, company-number-format, context-distill, iban-check, lei-check, isin-check, luhn-check, swift-bic-check, ean13-check, gstin-check]
+      summary: Call a paid tool (x402 v1 wire; X-PAYMENT voucher)
+      parameters: [{name: tool, in: path, required: true, schema: {type: string}}]
       requestBody:
-        required: true
         content:
           application/json:
             schema:
               type: object
               required: [input]
               properties:
-                input:
-                  type: object
-                  description: >-
-                    Tool-specific input. vat-mod97-check: {vat_number: string}.
-                    company-number-format: {company_number: string}.
-                    context-distill: {html: string, max_bytes?: integer <= 16000}.
-                    iban-check: {iban: string}. lei-check: {lei: string}.
-                    isin-check: {isin: string}. luhn-check: {number: string}.
-                    swift-bic-check: {bic: string}. ean13-check: {ean: string}.
-                    gstin-check: {gstin: string}.
-                idempotency_key:
-                  type: string
-                  description: Client-chosen key making retries safe against double charge.
+                input: {type: object}
+                idempotency_key: {type: string}
       responses:
-        '200':
-          description: Deterministic output plus signed receipt
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  output: { type: object }
-                  receipt: { type: object }
-        '400':
-          description: UNSUPPORTED_CHAIN | UNSUPPORTED_TOKEN | INVALID_RECIPIENT | INPUT_SCHEMA_INVALID
-        '401':
-          description: INVALID_SIGNATURE
-        '402':
-          description: PAYMENT_REQUIRED (challenge) | INSUFFICIENT_PAYMENT | EXPIRED_PAYMENT
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  x402_version: { type: integer }
-                  request_id: { type: string }
-                  tool: { type: string }
-                  price:
-                    type: object
-                    properties:
-                      amount: { type: string }
-                      decimals: { type: integer }
-                      asset: { type: string }
-                      token_address: { type: string }
-                  network:
-                    type: object
-                    properties:
-                      chain_id: { type: integer }
-                      name: { type: string }
-                  recipient: { type: string }
-                  nonce: { type: string }
-                  expires_at: { type: integer }
-                  status_url: { type: string }
-        '409':
-          description: REPLAYED_NONCE — generate a fresh 32-byte nonce
-        '429':
-          description: RATE_LIMITED — exponential backoff
-        '500':
-          description: TOOL_INTERNAL_ERROR
+        "200": {description: output + signed receipt}
+        "402": {description: payment challenge (price, network, recipient, EIP-712 domain, nonce)}
+        "400": {description: invalid input or payment}
+        "409": {description: replayed nonce}
+  /v2/tools/{tool}/call:
+    post:
+      summary: x402 v2 wire (PAYMENT-REQUIRED / PAYMENT-SIGNATURE / PAYMENT-RESPONSE headers)
+      parameters: [{name: tool, in: path, required: true, schema: {type: string}}]
+      responses:
+        "200": {description: output + receipt + PAYMENT-RESPONSE}
+        "402": {description: challenge in PAYMENT-REQUIRED header (Base64 JSON)}
+        "404": {description: v2 not enabled on this environment}
+  /v1/ops/stats:
+    get:
+      summary: live operational telemetry (reconciler, breaker, counters)
+      responses: {"200": {description: public-safe JSON stats}}
+  /v1/trust/{domain}:
+    get:
+      summary: trust record for a machine-payable domain
+      parameters: [{name: domain, in: path, required: true, schema: {type: string}}]
+      responses: {"200": {description: trust record}, "404": {description: no record}}
+components:
+  securitySchemes:
+    x402: {type: apiKey, in: header, name: X-PAYMENT}
