@@ -629,7 +629,7 @@ async fn settle_and_serve(
                 payment_ref: auth.nonce.parse().unwrap_or_default(),
             };
             let commitment = receipt.commitment();
-            let sig_hex = sign_commitment(env, &commitment)?;
+            let sig_hex = sign_commitment(env, &commitment).await?;
             let full_body = serde_json::json!({
                 "output": output,
                 "receipt": {"receipt": receipt, "spec": m2m_core::receipt::SPEC, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex},
@@ -881,7 +881,7 @@ async fn entitled_serve(
         payment_ref: auth.nonce.parse().unwrap_or_default(), // XDR-1 v0.2
     };
     let commitment = receipt.commitment();
-    let sig_hex = sign_commitment(env, &commitment)?;
+    let sig_hex = sign_commitment(env, &commitment).await?;
     let full_body = serde_json::json!({
         "output": output,
         "receipt": {"receipt": receipt, "spec": m2m_core::receipt::SPEC, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex},

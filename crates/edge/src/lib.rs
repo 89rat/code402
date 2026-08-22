@@ -447,7 +447,7 @@ async fn fetch_inner(req: Request, env: Env, _ctx: Context) -> Result<Response> 
         payment_ref: alloy_primitives::B256::from_slice(voucher.auth.nonce.as_slice()), // XDR-1 v0.2
     };
     let commitment = receipt.commitment();
-    let sig_hex = sign_commitment(&env, &commitment)?;
+    let sig_hex = sign_commitment(&env, &commitment).await?;
     let receipt_doc = serde_json::json!({
         "receipt": receipt, "spec": m2m_core::receipt::SPEC, "commitment": hex_encode(commitment.as_slice()), "signature": sig_hex,
     });
@@ -586,8 +586,8 @@ async fn append_event_s(env: &Env, request_id: &str, suffix: &str, tool: &str, t
     Ok(())
 }
 
-pub(crate) fn sign_commitment(env: &Env, commitment: &B256) -> Result<String> {
-    let key_hex = env.secret("RECEIPT_SIGNING_KEY")?.to_string();
+pub(crate) async fn sign_commitment(env: &Env, commitment: &B256) -> Result<String> {
+    let key_hex = secrets_store_get(env, "RECEIPT_SIGNING_KEY").await?;
     let key_bytes = hex_decode(&key_hex).map_err(|_| Error::RustError("RECEIPT_SIGNING_KEY not hex".into()))?;
     let sk = SigningKey::from_slice(&key_bytes).map_err(|_| Error::RustError("RECEIPT_SIGNING_KEY invalid".into()))?;
     let (sig, rid) = sk.sign_prehash_recoverable(commitment.as_slice())
@@ -600,7 +600,7 @@ pub(crate) fn sign_commitment(env: &Env, commitment: &B256) -> Result<String> {
 // ---------- queue consumer: async settlement confirmation ----------
 #[event(queue)]
 pub async fn queue(batch: MessageBatch<SettlementMsg>, env: Env, _ctx: Context) -> Result<()> {
-    let rpc = env.secret("RPC_PRIMARY")?.to_string();
+    let rpc = secrets_store_get(&env, "RPC_PRIMARY").await?;
     let db = env.d1("LEDGER")?;
     for msg in batch.messages()? {
         let m = msg.body();
@@ -690,6 +690,31 @@ async fn confirm_tx(rpc: &str, tx_hash: &str, expected: &SettlementMsg) -> Resul
     Ok(transfer_ok && nonce_ok)
 }
 
+// ---------- Cloudflare Secrets Store (account-level; beta) ----------
+/// worker-rs 0.4 ships no typed Secrets Store wrapper. The binding is an object with
+/// async `get(): Promise<string>` — fetch per use so rotation needs no redeploy.
+/// Values are entered by the operator at the wrangler prompt; they never live in a file.
+async fn secrets_store_get(env: &Env, binding: &str) -> Result<String> {
+    use worker::wasm_bindgen::{JsCast, JsValue};
+    let obj = worker::js_sys::Reflect::get(env, &JsValue::from_str(binding))
+        .map_err(|_| Error::RustError(format!("secrets-store binding `{binding}` lookup failed")))?;
+    if obj.is_undefined() || obj.is_null() {
+        return Err(Error::RustError(format!(
+            "secrets-store binding `{binding}` undefined — is secrets_store_secrets configured in wrangler.toml?"
+        )));
+    }
+    let get_fn: worker::js_sys::Function = worker::js_sys::Reflect::get(&obj, &JsValue::from_str("get"))
+        .ok().and_then(|f| f.dyn_into().ok())
+        .ok_or_else(|| Error::RustError(format!("secrets-store binding `{binding}` has no .get()")))?;
+    let promise: worker::js_sys::Promise = get_fn.call0(&obj)
+        .ok().and_then(|p| p.dyn_into().ok())
+        .ok_or_else(|| Error::RustError(format!("secrets-store `{binding}`.get() did not return a Promise")))?;
+    let v = worker::wasm_bindgen_futures::JsFuture::from(promise).await
+        .map_err(|_| Error::RustError(format!("secrets-store `{binding}`.get() rejected")))?;
+    v.as_string()
+        .ok_or_else(|| Error::RustError(format!("secrets-store `{binding}` value was not a string")))
+}
+
 // ---------- cron: hourly sweep-policy check; 02:00 daily accounting export ----------
 #[event(scheduled)]
 pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
@@ -768,7 +793,7 @@ impl DurableObject for NonceGuard {
 // breaker if our scheme/network pair disappears.
 async fn reconcile_and_probe(env: &Env) -> Result<()> {
     let chain: u64 = env.var("CHAIN_ID")?.to_string().parse().unwrap_or(84532);
-    let rpc = env.secret("RPC_PRIMARY")?.to_string();
+    let rpc = secrets_store_get(&env, "RPC_PRIMARY").await?;
     let token = env.var("USDC_BASE")?.to_string().to_lowercase();
 
     // health probe first (cheap, fail-open on meta per I5 — logged, not fatal)

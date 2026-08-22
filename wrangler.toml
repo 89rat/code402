@@ -2,6 +2,19 @@ name = "code402-edge"
 main = "crates/edge/build/worker/shim.mjs"
 compatibility_date = "2026-08-01"
 
+# Cloudflare Secrets Store (account-level). Values are entered by the operator at the
+# wrangler prompt — never in files, never in vars. One-time setup (operator runs):
+#   npx wrangler secrets-store store create code402-secrets --remote   # note STORE-ID
+#   npx wrangler secrets-store secret create <STORE-ID> --name RECEIPT_SIGNING_KEY --scopes workers --remote
+#   npx wrangler secrets-store secret create <STORE-ID> --name ROUTER_ORIGIN_SECRET --scopes workers --remote
+#   npx wrangler secrets-store secret create <STORE-ID> --name RPC_PRIMARY          --scopes workers --remote
+# then replace <STORE-ID> below. Deploys fail loudly until the real id is in place.
+secrets_store_secrets = [
+  { binding = "RECEIPT_SIGNING_KEY", store_id = "<STORE-ID>", secret_name = "RECEIPT_SIGNING_KEY" },
+  { binding = "ROUTER_ORIGIN_SECRET", store_id = "<STORE-ID>", secret_name = "ROUTER_ORIGIN_SECRET" },
+  { binding = "RPC_PRIMARY",          store_id = "<STORE-ID>", secret_name = "RPC_PRIMARY" },
+]
+
 [build]
 # worker-build must stay at ^0.1 to match worker = "0.4" (see CHANGELOG).
 command = "cd crates/edge && worker-build --release"
@@ -68,6 +81,13 @@ RECEIPT_SIGNER_ADDRESS = "0x7b885c42b47671a91b3d81694ce18d38e25e7149"
 # Separate worker name so production never clobbers the staging script.
 [env.production]
 name = "code402-edge-prod"
+
+# Same account-level Secrets Store; identical bindings for prod (see top-of-file note).
+secrets_store_secrets = [
+  { binding = "RECEIPT_SIGNING_KEY", store_id = "<STORE-ID>", secret_name = "RECEIPT_SIGNING_KEY" },
+  { binding = "ROUTER_ORIGIN_SECRET", store_id = "<STORE-ID>", secret_name = "ROUTER_ORIGIN_SECRET" },
+  { binding = "RPC_PRIMARY",          store_id = "<STORE-ID>", secret_name = "RPC_PRIMARY" },
+]
 
 # Custom domain (zone code402.dev already in account). Also fixes same-account
 # workers.dev subrequest routing (asset-router interception observed 2026-08-17).
