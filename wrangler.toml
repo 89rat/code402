@@ -76,6 +76,14 @@ routes = [
   { pattern = "www.code402.dev", custom_domain = true }
 ]
 
+# [assets] declared EXPLICITLY for the named environment — top-level inheritance
+# into env sections proved unreliable (assets router intermittently captured
+# /v1/* on prod twice: 2026-08-21, 2026-08-22; staging inheriting stayed fine).
+[env.production.assets]
+directory = "./site/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/v1/*", "/v2/*", "/.well-known/*", "/llms.txt", "/cdn-cgi/*", "/__scheduled*"]
+
 [env.production.durable_objects]
 bindings = [
   { name = "NONCE_GUARD", class_name = "NonceGuard" },
