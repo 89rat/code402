@@ -25,3 +25,15 @@ crawler/observations.db
 *.db-journal
 *.db-wal
 *.db-shm
+
+# ── Never commit: secrets, keys, keystores (2026-08-22 work order) ──
+.env
+*.key
+*.pem
+wallet*.json
+*.keystore
+**/__pycache__/
+
+# ── Internal docs moved local-only (code402-internal-archive/) ──
+collab/
+gtm/
