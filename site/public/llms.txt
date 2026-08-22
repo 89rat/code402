@@ -1,0 +1,97 @@
+# code402
+
+> Pay-per-call deterministic tools for autonomous agents, settled via x402
+> (HTTP 402) in USDC. Every paid call returns a signed secp256k1 receipt binding
+> input hash, output hash, tool version, and timestamp — third-party verifiable.
+
+OPERATOR: code402.dev is operated by JUANA LIMITED, Company No. 14043409,
+registered in England & Wales. Registered office: Unit 7, Edison Building,
+Coventry, CV1 4JA, United Kingdom. Security contact: security@code402.dev.
+
+ENVIRONMENT: production. Endpoint https://code402.dev — Base mainnet
+(chain 8453), real USDC. Staging for integration testing:
+https://code402-edge.akrivis.workers.dev — Base Sepolia testnet
+(chain 84532), test USDC. The 402 challenge body is always authoritative
+for recipient, amount, chain, and nonce.
+
+## How to call (agent quickstart)
+
+- No accounts, no API keys. Payment is the credential.
+- POST /v1/tools/{tool}/call unpaid → HTTP 402 challenge with price, recipient,
+  nonce, expiry.
+- Sign an EIP-3009 TransferWithAuthorization (EIP-712 typed data) for the
+  challenge amount, retry the identical request with header
+  X-PAYMENT: {"auth":{...},"signature":[...65 bytes]} → HTTP 200.
+- Response headers carry X-Schema-Version. Response schemas are frozen per
+  version; breaking changes only ever ship under a new schema version.
+- Idempotency: pass idempotency_key; a repeated key returns
+  {idempotent_replay:true, receipt_ref} and is never double-charged.
+
+## Tools (all strictly deterministic: identical input → byte-identical output)
+
+- vat-mod97-check — Validate a UK VAT registration number using the HMRC
+  modulus-97 checksum (standard and alternative variants). Use when an agent
+  must verify a counterparty VAT identifier before invoicing, onboarding, or
+  tax treatment decisions. Input: {"input":{"vat_number":"GB..."}}.
+  Output: {valid:boolean, canonical:string}.
+
+- company-number-format — Structural validation of a UK Companies House
+  company registration number (8 characters; all digits or letter prefix +
+  digits). Use when an agent screens corporate counterparties at high volume.
+  Input: {"input":{"company_number":"..."}}. Output: {valid:boolean}.
+
+- context-distill — Distill raw HTML into clean plain text sized for LLM
+  context windows; deterministic, zero network fetches (client-supplied HTML
+  only). Use to cut token spend before feeding web pages to a model.
+  Input: {"input":{"html":"...","max_bytes":4000}}.
+  Output: {clean_text, original_bytes, output_bytes, estimated_tokens_saved}.
+
+- iban-check — ISO 13616 IBAN validation (mod-97). Use before cross-border
+  payment instructions. Input: {"input":{"iban":"GB29 NWBK ..."}}.
+  Output: {valid:boolean}.
+
+- lei-check — ISO 17442 Legal Entity Identifier validation (mod 97-10). Use
+  when screening institutional counterparties. Input: {"input":{"lei":"..."}}.
+  Output: {valid:boolean}.
+
+- isin-check — ISO 6166 securities identifier validation (Luhn variant over
+  letter-expanded digits). Use before recording trades or positions.
+  Input: {"input":{"isin":"US0378331005"}}. Output: {valid:boolean}.
+
+- luhn-check — Generic Luhn mod-10 validation (cards, IMEI; 8-19 digits).
+  Input: {"input":{"number":"..."}}. Output: {valid:boolean}.
+
+- swift-bic-check — ISO 9362 BIC format validation (8 or 11 chars).
+  Input: {"input":{"bic":"DEUTDEFF"}}. Output: {valid:boolean}.
+
+- ean13-check — GS1 EAN-13/UPC-A check-digit validation. Input:
+  {"input":{"ean":"5901234123457"}}. Output: {valid:boolean}.
+
+- gstin-check — Indian GSTIN validation: structure, state code 01-38,
+  embedded PAN pattern, GSTN checksum. Input: {"input":{"gstin":"..."}}.
+  Output: {valid:boolean, canonical:string}.
+
+## Error taxonomy (with agent resolution strategy)
+
+- 400 INPUT_SCHEMA_INVALID — fix request shape per this manifest; do not retry unchanged.
+- 401 INVALID_SIGNATURE — recompute EIP-712 digest; verify domain {name:"USD Coin",version:"2",chainId,verifyingContract}.
+- 402 INSUFFICIENT_PAYMENT / EXPIRED_PAYMENT — re-challenge, sign fresh voucher within TTL.
+- 409 REPLAYED_NONCE — generate a fresh 32-byte nonce; never reuse.
+- 429 RATE_LIMITED — exponential backoff; baseline tier 600 req/min.
+
+## Machine manifests
+
+- MCP manifest: /.well-known/mcp.json
+- OpenAPI 3.1: /.well-known/openapi.yaml
+- Payment routing: /.well-known/x402.json
+
+## Trust endpoints (free, no payment)
+
+- GET /v1/trust/{domain} — observed trust record for an x402 endpoint:
+  uptime, schema fidelity, drift events, observation window. JSON.
+- GET /v1/trust/{domain}/badge.svg — embeddable SVG badge of the same record.
+- /trust — human-readable trust methodology and live Drift Wall.
+
+Standard price: 2000 minor units (0.002 USDC) per identifier validation call;
+5000 (0.005 USDC) for vat-mod97-check; 10000 (0.010 USDC) for context-distill.
+The 402 challenge body is always authoritative for price.
