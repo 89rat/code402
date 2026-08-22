@@ -21,6 +21,12 @@ pub fn recover_address(digest:&B256, signature:&[u8]) -> Result<Address, Payment
     if signature.len()!=65 { return Err(PaymentError::InvalidSignatureLength); }
     let (sb,vb)=signature.split_at(64);
     let sig=Signature::from_slice(sb).map_err(|_|PaymentError::RecoveryFailed)?;
+    // EIP-2 / low-s enforcement: a high-s signature is malleable and is REJECTED by the
+    // on-chain USDC contract (OpenZeppelin ECDSA). Accepting it here would deliver the
+    // tool output against a voucher that can never settle → free calls. Reject BEFORE
+    // recover so the edge accepts only what the chain accepts. `normalize_s()` returns
+    // Some(_) iff the input was high-s. (Ported from the tested low-s-fix artifact.)
+    if sig.normalize_s().is_some() { return Err(PaymentError::HighSSignature); }
     let rid=match vb[0]{
         r@(0|1)=>RecoveryId::try_from(r).map_err(|_|PaymentError::InvalidRecoveryId(r))?,
         r@(27|28)=>RecoveryId::try_from(r-27).map_err(|_|PaymentError::InvalidRecoveryId(r))?,

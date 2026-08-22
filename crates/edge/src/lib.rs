@@ -67,7 +67,7 @@ pub(crate) fn err(code: &str, status: u16, msg: &str) -> Result<Response> {
 fn map_payment_error(e: &PaymentError) -> Result<Response> {
     use PaymentError::*;
     match e {
-        InvalidSignatureLength | InvalidRecoveryId(_) | RecoveryFailed | SignerMismatch =>
+        InvalidSignatureLength | InvalidRecoveryId(_) | RecoveryFailed | SignerMismatch | HighSSignature =>
             err("INVALID_SIGNATURE", 401, &e.to_string()),
         InvalidRecipient => err("INVALID_RECIPIENT", 400, &e.to_string()),
         InsufficientAmount => err("INSUFFICIENT_PAYMENT", 402, &e.to_string()),
@@ -179,7 +179,7 @@ fn render_badge(record: Option<&str>) -> String {
 struct CallRequest { input: serde_json::Value, idempotency_key: Option<String> }
 
 #[derive(Serialize, Deserialize)]
-pub struct SettlementMsg { request_id: String, tx_hash: Option<String>, payer: String, amount_minor: String }
+pub struct SettlementMsg { request_id: String, tx_hash: Option<String>, payer: String, amount_minor: String, recipient: String, token: String, nonce: String }
 
 // ---------- fetch ----------
 #[event(fetch)]
@@ -468,6 +468,9 @@ async fn fetch_inner(req: Request, env: Env, _ctx: Context) -> Result<Response> 
         tx_hash,
         payer: format!("{payer:?}"),
         amount_minor: amount_minor.to_string(),
+        recipient: format!("{recipient:?}"),
+        token: format!("{token:?}"),
+        nonce: format!("0x{}", hex_encode(voucher.auth.nonce.as_slice())),
     }).await?;
 
     // STEP 7 — 200 {output, receipt} — paid responses are never cacheable
@@ -602,7 +605,7 @@ pub async fn queue(batch: MessageBatch<SettlementMsg>, env: Env, _ctx: Context) 
     for msg in batch.messages()? {
         let m = msg.body();
         let settled = match &m.tx_hash {
-            Some(tx) => confirm_tx(&rpc, tx).await.unwrap_or(false),
+            Some(tx) => confirm_tx(&rpc, tx, m).await.unwrap_or(false),
             None => false, // no facilitator tx yet; retry until one is attached
         };
         if settled {
@@ -617,7 +620,11 @@ pub async fn queue(batch: MessageBatch<SettlementMsg>, env: Env, _ctx: Context) 
     Ok(())
 }
 
-async fn confirm_tx(rpc: &str, tx_hash: &str) -> Result<bool> {
+/// Confirm a settlement tx. NOT just `status == 0x1`: decode the receipt logs and
+/// validate the actual transfer — a USDC `Transfer` to the expected recipient for at
+/// least the charged amount, and the `AuthorizationUsed` for the expected payer+nonce.
+/// Event topic hashes are COMPUTED (never hand-typed constants).
+async fn confirm_tx(rpc: &str, tx_hash: &str, expected: &SettlementMsg) -> Result<bool> {
     let payload = serde_json::json!({
         "jsonrpc": "2.0", "id": 1, "method": "eth_getTransactionReceipt",
         "params": [tx_hash],
@@ -631,7 +638,56 @@ async fn confirm_tx(rpc: &str, tx_hash: &str) -> Result<bool> {
     let req = Request::new_with_init(rpc, &init)?;
     let mut resp = Fetch::Request(req).send().await?;
     let body: serde_json::Value = resp.json().await?;
-    Ok(body["result"]["status"].as_str() == Some("0x1"))
+    let result = &body["result"];
+    if result.is_null() { return Ok(false); } // not mined yet — retry
+    if result["status"].as_str() != Some("0x1") { return Ok(false); }
+
+    let transfer_topic = keccak256(b"Transfer(address,address,uint256)");
+    let auth_used_topic = keccak256(b"AuthorizationUsed(address,bytes32)");
+    let want_token = expected.token.to_lowercase();
+    let want_to = expected.recipient.to_lowercase().replace("0x", "");
+    let want_from = expected.payer.to_lowercase().replace("0x", "");
+    let want_nonce = expected.nonce.to_lowercase().replace("0x", "");
+    let want_amount = expected.amount_minor.parse::<u64>().unwrap_or(u64::MAX);
+
+    let topic_addr = |t: &serde_json::Value| -> String {
+        t.as_str().unwrap_or("").to_lowercase().replace("0x", "")
+            .chars().skip(24).collect() // 32-byte topic → last 20 bytes (address)
+    };
+    let topic_hex = |t: &serde_json::Value| -> String {
+        t.as_str().unwrap_or("").to_lowercase().replace("0x", "")
+    };
+
+    let mut transfer_ok = false;
+    let mut nonce_ok = false;
+    if let Some(logs) = result["logs"].as_array() {
+        for log in logs {
+            let topics = match log["topics"].as_array() { Some(t) if !t.is_empty() => t, _ => continue };
+            let t0 = topic_hex(&topics[0]);
+            if t0 == format!("{:x}", transfer_topic) {
+                // Transfer(address from, address to, uint256 value): from/to indexed, value in data
+                let log_addr = log["address"].as_str().unwrap_or("").to_lowercase().replace("0x", "");
+                if topics.len() >= 3
+                    && log_addr == want_token.replace("0x", "")
+                    && topic_addr(&topics[2]) == want_to
+                {
+                    let value_hex = log["data"].as_str().unwrap_or("0x0");
+                    if let Ok(v) = U256::from_str_radix(value_hex.trim_start_matches("0x"), 16) {
+                        if v >= U256::from(want_amount) { transfer_ok = true; }
+                    }
+                }
+            } else if t0 == format!("{:x}", auth_used_topic) {
+                // AuthorizationUsed(address indexed authorizer, bytes32 indexed nonce)
+                if topics.len() >= 3
+                    && topic_addr(&topics[1]) == want_from
+                    && topic_hex(&topics[2]) == want_nonce
+                {
+                    nonce_ok = true;
+                }
+            }
+        }
+    }
+    Ok(transfer_ok && nonce_ok)
 }
 
 // ---------- cron: hourly sweep-policy check; 02:00 daily accounting export ----------

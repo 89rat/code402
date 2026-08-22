@@ -1,0 +1,3 @@
+# SPEC-VERSION pins are sha256 over LF bytes (canonical spec text). Force LF
+# checkout so the drift-detection test reads the same bytes on Windows.
+specs/** text eol=lf

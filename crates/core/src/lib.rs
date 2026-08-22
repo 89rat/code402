@@ -5,6 +5,7 @@ pub enum PaymentError {
     #[error("signature must be exactly 65 bytes (r||s||v)")] InvalidSignatureLength,
     #[error("invalid recovery id: {0}")] InvalidRecoveryId(u8),
     #[error("elliptic curve recovery failed")] RecoveryFailed,
+    #[error("high-s signature (malleable; the USDC contract rejects it on-chain)")] HighSSignature,
     #[error("recovered signer does not match declared payer")] SignerMismatch,
     #[error("token address is not allowlisted")] UnsupportedToken,
     #[error("chain id is not allowlisted")] UnsupportedChain,
